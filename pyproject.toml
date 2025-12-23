@@ -1,0 +1,15 @@
+[project]
+name = "ap-warehouse"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "dotenv>=0.9.9",
+    "duckdb>=1.4.3",
+    "ipykernel>=7.1.0",
+    "jupyter>=1.1.1",
+    "pandas>=2.3.3",
+    "pathlib>=1.0.1",
+    "ruff>=0.14.10",
+]
