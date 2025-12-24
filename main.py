@@ -45,16 +45,17 @@ def main(argv=None) -> None:
     )
 
     parser.add_argument(
-        "--table_prefix",
+        "--input-format",
         type=str,
-        default="_",
+        default="csv",
         required=False,
-        help="Prefix at the start of each table. Default is '_'.",
+        help="Input format of the files (csv or parquet). Default is 'csv'.",
     )
     args = parser.parse_args(argv)
 
     database_path = Path(args.database_path)
     conn = duckdb.connect(database=str(database_path))
+    print(f"Connected to database at {database_path}")
 
     data_files: list[Path] = []
 
@@ -63,7 +64,7 @@ def main(argv=None) -> None:
             Path(path) if not args.project_path else Path(args.project_path) / path
         )
         if dir_path.exists() and dir_path.is_dir():
-            dir_files: list[Path] = list_files_by_extension(dir_path, "csv")
+            dir_files: list[Path] = list_files_by_extension(dir_path, args.input_format)
             data_files.extend(dir_files)
         else:
             print(f"Warning: Source path {dir_path} does not exist or is not a dir.")
