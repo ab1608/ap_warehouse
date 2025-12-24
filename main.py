@@ -3,10 +3,10 @@ import os
 from pathlib import Path
 
 import duckdb
-import pandas as pd
 from dotenv import load_dotenv
 
-from pipe import list_files_by_extension, run_import
+from src.pipe import run_import
+from src.utils import list_files_by_extension
 
 
 def main(argv=None) -> None:
