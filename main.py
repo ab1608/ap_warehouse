@@ -5,6 +5,7 @@ from pathlib import Path
 import duckdb
 from dotenv import load_dotenv
 
+from src.metadata import update_metadata
 from src.pipe import run_import
 from src.utils import list_files_by_extension
 
@@ -15,6 +16,7 @@ def main(argv=None) -> None:
 
     project_default = os.getenv("PROJECT_PATH", None)
     database_default = os.getenv("DATABASE_PATH", None)
+    metadata_default = os.getenv("METADATA_PATH", None)
 
     parser = argparse.ArgumentParser(
         description="Move data from source folders to warehouse"
@@ -41,7 +43,6 @@ def main(argv=None) -> None:
         type=str,
         action="append",
         help="Source directories containing CSV or Parquet files.",
-        required=True,
     )
 
     parser.add_argument(
@@ -51,14 +52,45 @@ def main(argv=None) -> None:
         required=False,
         help="Input format of the files (csv or parquet). Default is 'csv'.",
     )
+
+    parser.add_argument(
+        "--metadata-path",
+        type=Path,
+        nargs="?" if metadata_default else None,
+        default=metadata_default,
+        help="Path to the metadata file describing the data schema. If not provided, uses METADATA_PATH from .env file.",
+    )
+
+    parser.add_argument(
+        "--update-metadata-only",
+        action="store_true",
+        default=False,
+        help="If set, replace all existing metadata with the new metadata passed in --metadata-path flag.",
+    )
+
     args = parser.parse_args(argv)
 
     database_path = Path(args.database_path)
     conn = duckdb.connect(database=str(database_path))
     print(f"Connected to database at {database_path}")
 
-    data_files: list[Path] = []
+    metadata_path = Path(args.metadata_path)
+    if args.update_metadata_only:
+        if args.metadata_path.exists() and args.metadata_path.is_dir():
+            print(f"Updating metadata only from {metadata_path}. Exiting after update.")
 
+            update_metadata(conn, metadata_path)
+            conn.close()
+            return
+
+        else:
+            print(
+                f"Warning: Metadata path {metadata_path} does not exist or is not a directory."
+            )
+            conn.close()
+            return
+
+    data_files: list[Path] = []
     for path in args.source_path:
         dir_path = (
             Path(path) if not args.project_path else Path(args.project_path) / path
