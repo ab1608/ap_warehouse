@@ -323,39 +323,6 @@ class FinanceMetadata:
 
         return signatures
 
-    def load_custom_profit_centers(self) -> DataFrame:
-        """Load a custom version of profit centers that has been joined with signatures
-        to provide brand information.
-
-        Returns:
-            DataFrame: DataFrame containing the custom profit centers.
-        """
-        profit_centers: DataFrame = self.load_profit_centers()
-        signatures: DataFrame = self.load_signatures()
-
-        profit_centers = profit_centers.rename(
-            columns={
-                "Profit Center": "Profit Center Code",
-                "SAP Signature": "Signature Code",
-                "Segment": "Division Abbreviation",
-                "Segment (2)": "Division",
-            }
-        )
-
-        profit_centers["Division Abbreviation"] = profit_centers[
-            "Division Abbreviation"
-        ].replace({"ACD": "LDB"})
-
-        custom_profit_centers: DataFrame = pd.merge(
-            profit_centers,
-            signatures,
-            on="Signature Code",
-            how="left",
-            validate="many_to_one",
-        )
-
-        return custom_profit_centers
-
     def load_cost_centers(self) -> DataFrame:
         """Load cost_centers.csv."""
 
@@ -377,26 +344,6 @@ class FinanceMetadata:
             index_col=False,
         )
         return cost_center_to_compass
-
-    def load_cost_enter_to_compass(self) -> DataFrame:
-        """Load a custom version of the Standard Node to Compass metadata that may include additional processing or merging.
-        The following columns are present in the resulting DataFrame:
-        - Cost Center Code
-        - Compass Code
-        - P&L Line Text
-        """
-        cost_centers: DataFrame = self.load_cost_centers()
-        cost_centers = cost_centers.loc[:, ["Cost Center", "Standard Hierarchy Node"]]
-        cost_centers = cost_centers.rename(columns={"Cost Center": "Cost Center Code"})
-
-        node_to_compass: DataFrame = self.load_standard_node_to_compass()
-        node_to_compass = node_to_compass.rename(
-            columns={
-                "Group cost center code": "Standard Hierarchy Node",
-                "P&L line code": "Compass Code",
-                "P&L line label long EN": "P&L Line Text",
-            }
-        )
 
         cost_center_to_compass: DataFrame = pd.merge(
             cost_centers,
