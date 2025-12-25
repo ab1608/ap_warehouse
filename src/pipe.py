@@ -102,6 +102,11 @@ def run_import(conn: duckdb.DuckDBPyConnection, data_files: list[Path]) -> None:
         "commit_cc": [],
         "commit_wbs": [],
         "cost_center_details": [],
+        "wbs_budget": [],
+        "forecast_budget": [],
+        "forecast_live_estimate": [],
+        "forecast_pre_budget": [],
+        "forecast_trend": [],
     }
     for data_file in files_to_process:
         fname = data_file.name.lower()
@@ -111,6 +116,16 @@ def run_import(conn: duckdb.DuckDBPyConnection, data_files: list[Path]) -> None:
             master_tables["commit_cc"].append(data_file)
         elif "commit_wbs" in fname:
             master_tables["commit_wbs"].append(data_file)
+        elif "wbs_budget" in fname:
+            master_tables["wbs_budget"].append(data_file)
+        elif "_le_" in fname:
+            master_tables["forecast_live_estimate"].append(data_file)
+        elif "_prebud_" in fname:
+            master_tables["forecast_pre_budget"].append(data_file)
+        elif "_bud_" in fname:
+            master_tables["forecast_budget"].append(data_file)
+        elif "_t0" in fname:
+            master_tables["forecast_trend"].append(data_file)
         else:
             master_tables["actuals"].append(data_file)
 

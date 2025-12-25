@@ -33,4 +33,5 @@ def list_files_by_extension(directory: Path, extension: str) -> list[Path]:
     Returns:
         list[Path]: A list of file paths matching the specified extension.
     """
-    return list(directory.glob(f"*.{extension}"))
+    # Check recursively for files with the given extension
+    return list(directory.glob(f"**/*.{extension}"))
