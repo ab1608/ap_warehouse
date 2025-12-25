@@ -1,176 +1,404 @@
+import gc
 from collections import defaultdict
 from pathlib import Path
 
-import duckdb
 import pandas as pd
+from duckdb import DuckDBPyConnection
 from pandas import DataFrame, Float64Dtype, Int64Dtype, StringDtype
-
-RAW_NEO_DTYPES = defaultdict(
-    StringDtype,
-    {
-        "Accounting doc type": StringDtype(),
-        "Amount in Company Code Currency": Float64Dtype(),
-        "Business Transaction": StringDtype(),
-        "CO Object Name": StringDtype(),
-        "Company Code": StringDtype(),
-        "Cost Center": StringDtype(),
-        "Cost Center Name": StringDtype(),
-        "Cost element": StringDtype(),
-        "Cost element descr.": StringDtype(),
-        "Distribution Channel": Int64Dtype(),
-        "Fiscal Period": Int64Dtype(),
-        "Fiscal Year": Int64Dtype(),
-        "G/L Account": Int64Dtype(),
-        "G/L Account Name": StringDtype(),
-        "G/L Account Type": StringDtype(),
-        "JE Type Name": StringDtype(),
-        "Journal Entry Item Text": StringDtype(),
-        "Journal Entry Type": StringDtype(),
-        "Ledger": StringDtype(),
-        "Material": StringDtype(),
-        "Name": StringDtype(),
-        "Object": StringDtype(),
-        "Object Currency": StringDtype(),
-        "Object Type": StringDtype(),
-        "Partner Cost Center": StringDtype(),
-        "Period": Int64Dtype(),
-        "Product": StringDtype(),
-        "Profit Center": StringDtype(),
-        "Profit Center Name": StringDtype(),
-        "Project": StringDtype(),
-        "Project External ID": StringDtype(),
-        "Project Name": StringDtype(),
-        "Project definition": StringDtype(),
-        "Purchasing Doc. Item": StringDtype(),
-        "Purchasing Document": StringDtype(),
-        "Quantity/Plan": Float64Dtype(),
-        "Ref. document number": StringDtype(),
-        "Reference Doc. Type": StringDtype(),
-        "Reference Document Category": StringDtype(),
-        "Reference Item": Int64Dtype(),
-        "Semantic Tag": StringDtype(),
-        "Signature": StringDtype(),
-        "Signature Code": StringDtype(),
-        "Signature2": StringDtype(),
-        "Structure": StringDtype(),
-        "Supplier": StringDtype(),
-        "Total Quantity": Float64Dtype(),
-        "Unit of Measure": StringDtype(),
-        "User Name": StringDtype(),
-        "Val.in rep.cur.": Float64Dtype(),
-        "Val/COArea Crcy": Float64Dtype(),
-        "Value TranCurr": Float64Dtype(),
-        "Value in Obj. Crcy": Float64Dtype(),
-        "WBS Element": StringDtype(),
-        "WBS Element Name": StringDtype(),
-        "WBS Element External ID": StringDtype(),
-    },
-)
-
-PROCESSED_LOG_TABLE = "ingested_files"
+from tqdm import tqdm
 
 
-def track_processed_files(conn: duckdb.DuckDBPyConnection) -> None:
-    """Creates a table to track files we have already processed."""
-    conn.execute(f"""
-        CREATE TABLE IF NOT EXISTS {PROCESSED_LOG_TABLE} (
-            filename TEXT PRIMARY KEY,
-            ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+class FinancePipeline:
+    RAW_DATA_TYPES = defaultdict(
+        StringDtype,
+        {
+            "Accounting doc type": StringDtype(),
+            "Amount in Company Code Currency": Float64Dtype(),
+            "Business Transaction": StringDtype(),
+            "CO Object Name": StringDtype(),
+            "Company Code": StringDtype(),
+            "Cost Center": StringDtype(),
+            "Cost Center Name": StringDtype(),
+            "Cost element": StringDtype(),
+            "Cost element descr.": StringDtype(),
+            "Distribution Channel": Int64Dtype(),
+            "Fiscal Period": Int64Dtype(),
+            "Fiscal Year": Int64Dtype(),
+            "G/L Account": Int64Dtype(),
+            "G/L Account Name": StringDtype(),
+            "G/L Account Type": StringDtype(),
+            "JE Type Name": StringDtype(),
+            "Journal Entry Item Text": StringDtype(),
+            "Journal Entry Type": StringDtype(),
+            "Ledger": StringDtype(),
+            "Material": StringDtype(),
+            "Name": StringDtype(),
+            "Object": StringDtype(),
+            "Object Currency": StringDtype(),
+            "Object Type": StringDtype(),
+            "Partner Cost Center": StringDtype(),
+            "Period": Int64Dtype(),
+            "Product": StringDtype(),
+            "Profit Center": StringDtype(),
+            "Profit Center Name": StringDtype(),
+            "Project": StringDtype(),
+            "Project External ID": StringDtype(),
+            "Project Name": StringDtype(),
+            "Project definition": StringDtype(),
+            "Purchasing Doc. Item": StringDtype(),
+            "Purchasing Document": StringDtype(),
+            "Quantity/Plan": Float64Dtype(),
+            "Ref. document number": StringDtype(),
+            "Reference Doc. Type": StringDtype(),
+            "Reference Document Category": StringDtype(),
+            "Reference Item": Int64Dtype(),
+            "Semantic Tag": StringDtype(),
+            "Signature": StringDtype(),
+            "Signature Code": StringDtype(),
+            "Signature2": StringDtype(),
+            "Structure": StringDtype(),
+            "Supplier": StringDtype(),
+            "Total Quantity": Float64Dtype(),
+            "Unit of Measure": StringDtype(),
+            "User Name": StringDtype(),
+            "Val.in rep.cur.": Float64Dtype(),
+            "Val/COArea Crcy": Float64Dtype(),
+            "Value TranCurr": Float64Dtype(),
+            "Value in Obj. Crcy": Float64Dtype(),
+            "WBS Element": StringDtype(),
+            "WBS Element Name": StringDtype(),
+            "WBS Element External ID": StringDtype(),
+        },
+    )
 
-
-def get_new_files(conn, all_files) -> list[Path]:
-    """Filters out files that are already in the database log."""
-    processed = conn.execute(f"SELECT filename FROM {PROCESSED_LOG_TABLE}").fetchall()
-    processed_set = {row[0] for row in processed}
-    return [f for f in all_files if f.name not in processed_set]
-
-
-def run_import(conn: duckdb.DuckDBPyConnection, data_files: list[Path]) -> None:
-    # 1. Check for new files to process
-    track_processed_files(conn)
-    files_to_process: list[Path] = get_new_files(conn, data_files)
-
-    if not files_to_process:
-        print("No new data files found to ingest. Exiting program.")
-        return
-
-    # 2. Categorize each file into its respective table
-    master_tables: dict[str, list[Path]] = {
-        "actuals": [],
-        "commit_cc": [],
-        "commit_wbs": [],
-        "cost_center_details": [],
-        "wbs_budget": [],
-        "forecast_budget": [],
-        "forecast_live_estimate": [],
-        "forecast_pre_budget": [],
-        "forecast_trend": [],
+    COLUMN_RENAME: dict[str, str] = {
+        "Cost Center": "Cost Center Code",
+        "Cost element": "G/L Account",
+        "G/L Account Long Name": "G/L Account Name",
+        "Material": "Material Code",
+        "Partner Cost Center": "Partner Cost Center Code",
+        "Profit Center": "Profit Center Code",
+        "Product": "Product Code",
+        "Product Description": "Product Name",
+        "Project External ID": "Project Code",
+        "Period": "Fiscal Period",
+        "Signature": "Signature Code",
+        "Value in Obj. Crcy": "Amount in Company Code Currency",
+        "WBS Element": "WBS Element Code",
+        "WBS Element External ID": "WBS Element Code",
+        "WBS element": "WBS Element Code",
     }
-    for data_file in files_to_process:
-        fname = data_file.name.lower()
-        if "ccdet" in fname:
-            master_tables["cost_center_details"].append(data_file)
-        elif "commit_cc" in fname:
-            master_tables["commit_cc"].append(data_file)
-        elif "commit_wbs" in fname:
-            master_tables["commit_wbs"].append(data_file)
-        elif "wbs_budget" in fname:
-            master_tables["wbs_budget"].append(data_file)
-        elif "_le_" in fname:
-            master_tables["forecast_live_estimate"].append(data_file)
-        elif "_prebud_" in fname:
-            master_tables["forecast_pre_budget"].append(data_file)
-        elif "_bud_" in fname:
-            master_tables["forecast_budget"].append(data_file)
-        elif "_t0" in fname:
-            master_tables["forecast_trend"].append(data_file)
-        else:
-            master_tables["actuals"].append(data_file)
 
-    # 3. Process each bucket of files into their respective tables
-    for table_key, file_list in master_tables.items():
-        if not file_list:
-            print(f"No new files to process for table {table_key}. Skipping.")
-            continue
+    def __init__(
+        self,
+        conn: DuckDBPyConnection,
+    ) -> None:
+        self.conn = conn
+        self.master_tables: dict[str, list[Path]] = {
+            "actuals": [],
+            "commit_cc": [],
+            "commit_wbs": [],
+            "cost_center_details": [],
+            "wbs_budget": [],
+            "forecast_budget": [],
+            "forecast_live_estimate": [],
+            "forecast_pre_budget": [],
+            "forecast_trend": [],
+        }
 
-        print(f"Moving {len(file_list)} files to table {table_key}...")
-        for file_path in file_list:
-            try:
-                # Check the file extension to determine whether to read as CSV or Parquet
-                if file_path.suffix.lower() == ".parquet":
-                    df: DataFrame = pd.read_parquet(file_path, engine="pyarrow")
-                    df["source_file"] = file_path.name
-                else:
-                    df: DataFrame = pd.read_csv(
-                        file_path,
-                        dtype=RAW_NEO_DTYPES,
-                        encoding="ISO-8859-1",
-                        index_col=False,
+    PROCESSED_LOG_TABLE = "ingested_files"
+
+    def track_processed_files(self) -> None:
+        """Creates a table to track files we have already processed."""
+        self.conn.execute(f"""
+            CREATE TABLE IF NOT EXISTS {self.PROCESSED_LOG_TABLE} (
+                filename TEXT PRIMARY KEY,
+                ingested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+    def get_new_files(self, data_files: list[Path]) -> list[Path]:
+        """Filters out files that are already in the database log."""
+        processed = self.conn.execute(
+            f"SELECT filename FROM {self.PROCESSED_LOG_TABLE}"
+        ).fetchall()
+        processed_set = {row[0] for row in processed}
+        return [f for f in data_files if f.name not in processed_set]
+
+    def close_db_conn(self) -> None:
+        self.conn.close()
+
+    def enhance_wbs_elements(
+        self, wbs_elements: DataFrame, wbs_codification: DataFrame
+    ) -> DataFrame:
+        # Create WBS Parents
+        level_one_mask = wbs_elements["WBS Level"] == 1
+        wbs_elements.loc[level_one_mask, "WBS Parent Code"] = wbs_elements.loc[
+            level_one_mask, "WBS Element Code"
+        ]
+
+        wbs_elements["WBS Parent Code"] = wbs_elements["WBS Parent Code"].ffill()
+
+        wbs_elements.loc[level_one_mask, "WBS Parent Name"] = wbs_elements.loc[
+            level_one_mask, "WBS Element Name"
+        ]
+        wbs_elements["WBS Parent Name"] = wbs_elements["WBS Parent Name"].ffill()
+
+        # Get first character from each WBS Element to create Type Char
+        wbs_elements["WBS Type Char"] = wbs_elements["WBS Element Code"].str[0:1]
+
+        # Create WBS Bucket using codifications
+        wbs_elements = pd.merge(
+            wbs_elements,
+            wbs_codification,
+            how="left",
+            on="WBS Type Char",
+            validate="many_to_one",
+        )
+
+        return wbs_elements
+
+    def link_profit_center_to_signatures(
+        self, profit_centers: DataFrame, signatures: DataFrame
+    ) -> DataFrame:
+        return pd.merge(
+            profit_centers,
+            signatures,
+            on="Signature Code",
+            how="left",
+            validate="many_to_one",
+        )
+
+    def link_cost_center_to_compass(
+        self, cost_centers: DataFrame, node_to_compass: DataFrame
+    ):
+        return pd.merge(
+            cost_centers,
+            node_to_compass,
+            on="Standard Hierarchy Node",
+            how="inner",
+            validate="many_to_one",
+        ).drop(columns=["Standard Hierarchy Node"])
+
+    def link_gl_to_compass(self, gl_accounts, gl_to_compass: DataFrame) -> DataFrame:
+        return pd.merge(
+            gl_accounts,
+            gl_to_compass,
+            how="left",
+            on="G/L Account",
+            validate="one_to_one",
+        )
+
+    def run_import(self, data_files: list[Path]) -> None:
+        # 1. Check for new files to process
+        self.track_processed_files()
+        files_to_process: list[Path] = self.get_new_files(data_files)
+
+        if not files_to_process:
+            print("No new data files found to ingest. Exiting program.")
+            return
+
+        # 2. Categorize each file into its respective table
+
+        for data_file in files_to_process:
+            fname = data_file.name.lower()
+            if "ccdet" in fname:
+                self.master_tables["cost_center_details"].append(data_file)
+            elif "commit_cc" in fname:
+                self.master_tables["commit_cc"].append(data_file)
+            elif "commit_wbs" in fname:
+                self.master_tables["commit_wbs"].append(data_file)
+            elif "wbs_budget" in fname:
+                self.master_tables["wbs_budget"].append(data_file)
+            elif "_le_" in fname:
+                self.master_tables["forecast_live_estimate"].append(data_file)
+            elif "_prebud_" in fname:
+                self.master_tables["forecast_pre_budget"].append(data_file)
+            elif "_bud_" in fname:
+                self.master_tables["forecast_budget"].append(data_file)
+            elif "_t0" in fname:
+                self.master_tables["forecast_trend"].append(data_file)
+            else:
+                self.master_tables["actuals"].append(data_file)
+
+        # 3. Process each bucket of files into their respective tables
+        for table_key, file_list in self.master_tables.items():
+            if not file_list:
+                print(f"No new files to process for table {table_key}. Skipping.")
+                continue
+
+            print(f"Moving {len(file_list)} files to table {table_key}...")
+            for file_path in file_list:
+                try:
+                    df = DataFrame()
+                    if file_path.suffix.lower() == ".parquet":
+                        df = pd.read_parquet(file_path, engine="pyarrow")
+                        df["source_file"] = file_path.name
+                    else:
+                        df = pd.read_csv(
+                            file_path,
+                            dtype=self.RAW_DATA_TYPES,
+                            encoding="ISO-8859-1",
+                            index_col=False,
+                        )
+                        df["source_file"] = file_path.name
+
+                    self.conn.register("df_typed", df)
+                    self.conn.execute("BEGIN TRANSACTION")
+                    self.conn.execute(
+                        f"CREATE TABLE IF NOT EXISTS {table_key} AS SELECT * FROM df_typed WHERE 1=0"
                     )
-                    df["source_file"] = file_path.name
+                    self.conn.execute(f"INSERT INTO {table_key} SELECT * FROM df_typed")
+                    self.conn.unregister("df_typed")
 
-                conn.register("df_typed", df)
-                conn.execute("BEGIN TRANSACTION")
-                conn.execute(
-                    f"CREATE TABLE IF NOT EXISTS {table_key} AS SELECT * FROM df_typed WHERE 1=0"
-                )
-                conn.execute(f"INSERT INTO {table_key} SELECT * FROM df_typed")
-                conn.unregister("df_typed")
+                    self.conn.execute(
+                        f""" INSERT INTO {self.PROCESSED_LOG_TABLE} (filename) VALUES (?)""",
+                        [file_path.name],
+                    )
+                    self.conn.execute("COMMIT")
 
-                conn.execute(
-                    f""" INSERT INTO {PROCESSED_LOG_TABLE} (filename) VALUES (?)""",
-                    [file_path.name],
-                )
-                conn.execute("COMMIT")
+                    print(
+                        f"Successfully ingested: {file_path.name} to table {table_key}."
+                    )
 
-                print(f"Successfully ingested: {file_path.name} to table {table_key}.")
+                except Exception as e:
+                    self.conn.execute("ROLLBACK")
+                    print(f"Error processing file {file_path.name}: {e}")
 
-            except Exception as e:
-                conn.execute("ROLLBACK")
-                print(f"Error processing file {file_path.name}: {e}")
+        # 4. Close connection
+        self.conn.close()
+        print("Data import complete.")
 
-    # 4. Close connection
-    conn.close()
-    print("Data import complete.")
+    def run_transformation(self) -> None:
+        """Run transformation on data found in the database.
+
+        Returns:
+            None
+        """
+
+        # 1. Load all master tables from database
+        master_data: dict[str, DataFrame] = {}
+
+        with tqdm(total=1, desc="Fetching from DuckDB") as pbar:
+            for master_table in self.master_tables.keys():
+                master_df: DataFrame = self.conn.execute(
+                    f"SELECT * FROM {master_table}"
+                ).df()
+                master_data.update({master_table: master_df})
+                pbar.update(1)
+
+        # 2. Instantiate metadata and enhance where necessary
+        compass_codes: DataFrame = self.conn.execute(
+            """
+            SELECT
+                "Financial Statement Item" AS "Compass Code",
+                "Text" AS "P&L Line Text"
+            FROM meta_fs_items
+            """
+        ).df()
+
+        cost_centers: DataFrame = self.conn.execute(
+            """
+            SELECT
+                "Cost Center" AS "Cost Center Code",
+                "Profit Center" AS "Profit Center Code",
+                "Standard Hierarchy Node",
+            FROM meta_cost_centers
+            """
+        ).df()
+
+        node_to_compass: DataFrame = self.conn.execute(
+            """
+            SELECT
+                "Group cost center code" AS "Standard Hierarchy Node",
+                "P&L line code" AS "Compass Code"
+            FROM meta_node_to_compass
+            """
+        ).df()
+
+        fiscal_periods: DataFrame = self.conn.execute(
+            """
+            SELECT
+                "Fiscal Period",
+                "Fiscal Period Text"
+            FROM meta_fiscal_periods;
+            """
+        ).df()
+
+        gl_accounts: DataFrame = self.conn.execute(
+            """
+            SELECT
+                "G/L Account",
+                "G/L Acct Long Text"
+            FROM meta_gl_accounts
+            """
+        ).df()
+
+        gl_accounts_to_compass: DataFrame = self.conn.execute(
+            """
+            SELECT
+                "Financal Statement Item" AS "Compass Code",
+                "Account To" AS "G/L Account"
+            FROM meta_gl_to_compass
+            """
+        ).df()
+
+        profit_centers: DataFrame = self.conn.execute(
+            """
+            SELECT
+                "Profit Center" AS "Profit Center Code",
+                "Segment" AS "Division Abbreviation",
+                "Segment (2)" AS "Division",
+                "Standard Hierarchy Node",
+                "SAP Signature" AS "Signature Code"
+            FROM meta_profit_centers
+            """
+        ).df()
+
+        signatures: DataFrame = self.conn.execute(
+            """
+            SELECT
+                "Signature Code",
+                "Signature Description"
+            FROM meta_profit_centers
+            """
+        ).df()
+
+        wbs_codification: DataFrame = self.conn.execute(
+            """
+            SELECT
+                "Type Char" AS "WBS Type Char",
+                "Type" AS "WBS Type",
+                "Type Local" AS "WBS Typ Local"
+            FROM meta_wbs_codification;
+            """
+        ).df()
+
+        wbs_elements: DataFrame = self.conn.execute(
+            """
+            SELECT
+                "WBS Element",
+                "Level" AS "WBS Level",
+                "P&L_Destination" AS "WBS G/L Account",
+                "Profit Center" AS "WBS Profit Center Code"
+            FROM meta_wbs_elements
+            """
+        ).df()
+
+        wbs_enhanced: DataFrame = self.enhance_wbs_elements(
+            wbs_elements, wbs_codification
+        )
+        profit_centers_to_signatures: DataFrame = self.link_profit_center_to_signatures(
+            profit_centers, signatures
+        )
+        cost_center_to_compass: DataFrame = self.link_cost_center_to_compass(
+            cost_centers, node_to_compass
+        )
+        gl_to_compass: DataFrame = self.link_gl_to_compass(
+            gl_accounts, gl_accounts_to_compass
+        )
+
+        # 3. Load all data and append tables where necessary
+        committed: DataFrame = pd.concat(
+            [master_data["commit_wbs"], master_data["commit_cc"]]
+        )
