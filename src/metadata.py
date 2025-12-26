@@ -391,31 +391,28 @@ class FinanceMetadata:
             index_col=False,
         )
 
+    def move_data_to_db(self, db_conn: DuckDBPyConnection) -> None:
+        meta_data: dict[str, DataFrame] = {
+            "meta_company_divisions": self.load_company_divisions(),
+            "meta_fs_items": self.load_fs_items(),
+            "meta_fs_parent_children": self.load_fs_parent_levels(),
+            "meta_fs_hierachy": self.load_fs_hiearchy(),
+            "meta_gl_accounts": self.load_gl_accounts(),
+            "meta_gl_to_compass": self.load_gl_to_compass(),
+            "meta_wbs_elements": self.load_wbs_elements(),
+            "meta_wbs_codification": self.load_wbs_codification(),
+            "meta_profit_centers": self.load_profit_centers(),
+            "meta_signatures": self.load_signatures(),
+            "meta_cost_centers": self.load_cost_centers(),
+            "meta_node_to_compass": self.load_standard_node_to_compass(),
+            "meta_fiscal_periods": self.load_fiscal_periods(),
+            "meta_fiscal_scenarios": self.load_fiscal_scenarios(),
+        }
 
-def update_metadata(db_conn: DuckDBPyConnection, metadata_path: Path) -> None:
-    meta = FinanceMetadata(metadata_dir=metadata_path)
-
-    meta_data: dict[str, DataFrame] = {
-        "meta_company_divisions": meta.load_company_divisions(),
-        "meta_fs_items": meta.load_fs_items(),
-        "meta_fs_parent_children": meta.load_fs_parent_levels(),
-        "meta_fs_hierachy": meta.load_fs_hiearchy(),
-        "meta_gl_accounts": meta.load_gl_accounts(),
-        "meta_gl_to_compass": meta.load_gl_to_compass(),
-        "meta_wbs_elements": meta.load_wbs_elements(),
-        "meta_wbs_codification": meta.load_wbs_codification(),
-        "meta_profit_centers": meta.load_profit_centers(),
-        "meta_signatures": meta.load_signatures(),
-        "meta_cost_centers": meta.load_cost_centers(),
-        "meta_node_to_compass": meta.load_standard_node_to_compass(),
-        "meta_fiscal_periods": meta.load_fiscal_periods(),
-        "meta_fiscal_scenarios": meta.load_fiscal_scenarios(),
-    }
-
-    # Write metadata tables to DuckDB
-    for table_name, df in meta_data.items():
-        db_conn.execute(f"DROP TABLE IF EXISTS {table_name}")
-        db_conn.register(table_name, df)
-        db_conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM {table_name}")
-        db_conn.unregister(table_name)
-        print(f"Updated metadata table: {table_name} with {len(df)} records")
+        # Write metadata tables to DuckDB
+        for table_name, df in meta_data.items():
+            db_conn.execute(f"DROP TABLE IF EXISTS {table_name}")
+            db_conn.register(table_name, df)
+            db_conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM {table_name}")
+            db_conn.unregister(table_name)
+            print(f"Updated metadata table: {table_name} with {len(df)} records")
