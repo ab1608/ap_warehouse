@@ -18,6 +18,7 @@ def main(argv=None) -> None:
     project_default = os.getenv("PROJECT_PATH", None)
     database_default = os.getenv("DATABASE_PATH", None)
     metadata_default = os.getenv("METADATA_PATH", None)
+    output_default = os.getenv("OUTPUT_PATH", None)
 
     parent_parser = argparse.ArgumentParser(add_help=False)
     parent_parser.add_argument(
@@ -71,6 +72,13 @@ def main(argv=None) -> None:
 
     transform_parser = subparsers.add_parser(
         "transform", parents=[parent_parser], help="Transform data in warehouse"
+    )
+    transform_parser.add_argument(
+        "--output-path",
+        type=Path,
+        nargs="?" if output_default else None,
+        default=output_default,
+        help="Path in which transformed data will be stored. If not provided, uses OUTPUT_PATH from .env file.",
     )
 
     args = parser.parse_args(argv)
@@ -130,6 +138,7 @@ def main(argv=None) -> None:
         conn = duckdb.connect(database=str(database_path))
         print(f"Connected to database at {database_path}")
         pipeline = FinancePipeline(conn)
+        pipeline.run_transformation(Path(str(args.output_path)))
         print("Transformation complete. Closing database and exiting program.")
         conn.close()
         sys.exit(0)

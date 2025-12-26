@@ -2,6 +2,7 @@ import gc
 from collections import defaultdict
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 from duckdb import DuckDBPyConnection
 from pandas import DataFrame, Float64Dtype, Int64Dtype, StringDtype
@@ -125,9 +126,6 @@ class FinancePipeline:
         processed_set = {row[0] for row in processed}
         return [f for f in data_files if f.name not in processed_set]
 
-    def close_db_conn(self) -> None:
-        self.conn.close()
-
     def enhance_wbs_elements(
         self, wbs_elements: DataFrame, wbs_codification: DataFrame
     ) -> DataFrame:
@@ -188,6 +186,20 @@ class FinancePipeline:
             on="G/L Account",
             validate="one_to_one",
         )
+
+    def determine_fiscal_type(self, data_table: DataFrame) -> DataFrame:
+        data_table["Fiscal Type"] = np.select(
+            [
+                data_table["WBS Element Code"].notna(),
+                (data_table["Cost Center Code"].notna())
+                | (data_table["Partner Cost Center Code"].notna()),
+                (data_table["WBS Element Code"].isna())
+                & (data_table["Product Code"].notna()),
+            ],
+            ["WBS", "COST CENTER", "NO WBS"],
+            default="FINANCE",
+        )
+        return data_table
 
     def run_import(self, data_files: list[Path]) -> None:
         # 1. Check for new files to process
@@ -260,22 +272,19 @@ class FinancePipeline:
                     print(
                         f"Successfully ingested: {file_path.name} to table {table_key}."
                     )
-
                 except Exception as e:
                     self.conn.execute("ROLLBACK")
                     print(f"Error processing file {file_path.name}: {e}")
 
-        # 4. Close connection
-        self.conn.close()
-        print("Data import complete.")
-
-    def run_transformation(self) -> None:
+    def run_transformation(self, output_path: Path) -> None:
         """Run transformation on data found in the database.
+
+        Args:
+            output_path (Path): Path to the output directory.
 
         Returns:
             None
         """
-
         # 1. Load all master tables from database
         master_data: dict[str, DataFrame] = {}
 
@@ -337,7 +346,7 @@ class FinancePipeline:
         gl_accounts_to_compass: DataFrame = self.conn.execute(
             """
             SELECT
-                "Financal Statement Item" AS "Compass Code",
+                "Financial Statement Item" AS "Compass Code",
                 "Account To" AS "G/L Account"
             FROM meta_gl_to_compass
             """
@@ -360,7 +369,7 @@ class FinancePipeline:
             SELECT
                 "Signature Code",
                 "Signature Description"
-            FROM meta_profit_centers
+            FROM meta_signatures
             """
         ).df()
 
@@ -377,7 +386,8 @@ class FinancePipeline:
         wbs_elements: DataFrame = self.conn.execute(
             """
             SELECT
-                "WBS Element",
+                "WBS Element" AS "WBS Element Code",
+                "WBS Element Name",
                 "Level" AS "WBS Level",
                 "P&L_Destination" AS "WBS G/L Account",
                 "Profit Center" AS "WBS Profit Center Code"
@@ -399,6 +409,75 @@ class FinancePipeline:
         )
 
         # 3. Load all data and append tables where necessary
-        committed: DataFrame = pd.concat(
-            [master_data["commit_wbs"], master_data["commit_cc"]]
+
+        # New Map to re-categroize each table as a "Scenario" based on the table name
+        final_labels = {
+            "actuals": "Actuals",
+            "commit_cc": "Committed",
+            "commit_wbs": "Committed",
+            "cost_center_details": "Cost Center Details",
+            "forecast_budget": "Budget",
+            "forecast_live_estimate": "Live Estimate",
+            "forecast_pre_budget": "Pre-Budget",
+            "forecast_trend": "Trend",
+        }
+        for table_label, table in master_data.items():
+            table["Scenario"] = final_labels.get(table_label, "Unknown")
+
+        # Start the transformation process
+
+        # Start with actuals
+
+        # ----- Process Data -----
+        # Business Logic:
+        # 1. Records posessing a WBS Element Code should be merged with the WBS Elements metdata
+        # to retrieve their Profit Center and G/L Account details from there. These attributes should
+        # override any existing values in the native data.
+        # 2. Compass Codes are retrieved using the G/L Accounts when G/L Accounts are present
+        # 3. If G/L Accounts are not present, Cost Centers can be used to retrieve Compass Codes instead
+        # by looking up the Cost Center to Compass mapping table that used the Standard Hierarchy Node to bridge both tables.
+
+        # ---- Begin with actulals ----
+        actuals: DataFrame = master_data["actuals"].rename(columns=self.COLUMN_RENAME)
+        # Let's drop existing WBS Element fields to avoid conflicts except WBS Element Code
+        actuals = actuals.drop(
+            columns=[col for col in wbs_enhanced.columns if col != "WBS Element Code"],
+            errors="ignore",
         )
+
+        actuals = actuals.merge(
+            wbs_enhanced, how="left", on="WBS Element Code", validate="many_to_one"
+        )
+
+        actuals["Native G/L Account"] = actuals["G/L Account"]
+        actuals["G/L Account"] = actuals["WBS G/L Account"].fillna(
+            actuals["WBS G/L Account"]
+        )
+        actuals["Profit Center Code"] = actuals["WBS Profit Center Code"].fillna(
+            actuals["Profit Center Code"]
+        )
+        actuals = actuals.drop(columns=["WBS Profit Center Code", "WBS G/L Account"])
+
+        actuals = actuals.merge(
+            gl_to_compass, how="left", on="G/L Account", validate="many_to_one"
+        )
+        actuals = actuals.merge(
+            compass_codes, how="left", on="Compass Code", validate="many_to_one"
+        )
+
+        actuals["Amount in Company Code Currency"] *= -1
+
+        actuals_fiscal_types = self.determine_fiscal_type(actuals)
+
+        del actuals
+        gc.collect()
+
+        # Let's save actuals to a parquet files that has been partitioned by year and period
+        # using DuckDB
+        # Instead of creating a table, export directly to a Parquet folder
+        self.conn.register("gold_actuals", actuals_fiscal_types)
+        self.conn.execute(f"""
+            COPY (SELECT * FROM gold_actuals)
+            TO '{output_path}'
+            (FORMAT PARQUET, PARTITION_BY ("Fiscal Year", "Fiscal Period"), OVERWRITE_OR_IGNORE 1)
+        """)
