@@ -392,6 +392,15 @@ class FinanceMetadata:
         )
 
     def move_data_to_db(self, db_conn: DuckDBPyConnection) -> None:
+        """
+        Move data to database and save as Parquet files.
+
+        Args:
+            db_conn (DuckDBPyConnection): Connection to DuckDB instance.
+
+        Returns:
+            None
+        """
         meta_data: dict[str, DataFrame] = {
             "meta_company_divisions": self.load_company_divisions(),
             "meta_fs_items": self.load_fs_items(),
@@ -416,3 +425,5 @@ class FinanceMetadata:
             db_conn.execute(f"CREATE TABLE {table_name} AS SELECT * FROM {table_name}")
             db_conn.unregister(table_name)
             print(f"Updated metadata table: {table_name} with {len(df)} records")
+            parquet_file: Path = self.metadata_dir / f"{table_name}.parquet"
+            df.to_parquet(parquet_file, engine="pyarrow")

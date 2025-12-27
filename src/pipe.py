@@ -20,7 +20,7 @@ class FinancePipeline:
             "Company Code": StringDtype(),
             "Cost Center": StringDtype(),
             "Cost Center Name": StringDtype(),
-            "Cost element": StringDtype(),
+            "Cost element": Int64Dtype(),
             "Cost element descr.": StringDtype(),
             "Distribution Channel": Int64Dtype(),
             "Fiscal Period": Int64Dtype(),
@@ -201,6 +201,25 @@ class FinancePipeline:
         )
         return data_table
 
+    def get_wbs_attributes(
+        self, frame: DataFrame, wbs_elements: DataFrame
+    ) -> DataFrame:
+        frame = frame.drop(
+            columns=[col for col in wbs_elements.columns if col != "WBS Element Code"],
+            errors="ignore",
+        )
+        frame = frame.merge(
+            wbs_elements, how="left", on="WBS Element Code", validate="many_to_one"
+        )
+
+        frame["Native G/L Account"] = frame["G/L Account"]
+        frame["G/L Account"] = frame["WBS G/L Account"].fillna(frame["G/L Account"])
+        frame["Profit Center Code"] = frame["WBS Profit Center Code"].fillna(
+            frame["Profit Center Code"]
+        )
+        frame = frame.drop(columns=["WBS Profit Center Code", "WBS G/L Account"])
+        return frame
+
     def run_import(self, data_files: list[Path]) -> None:
         # 1. Check for new files to process
         self.track_processed_files()
@@ -285,18 +304,8 @@ class FinancePipeline:
         Returns:
             None
         """
-        # 1. Load all master tables from database
-        master_data: dict[str, DataFrame] = {}
 
-        with tqdm(total=1, desc="Fetching from DuckDB") as pbar:
-            for master_table in self.master_tables.keys():
-                master_df: DataFrame = self.conn.execute(
-                    f"SELECT * FROM {master_table}"
-                ).df()
-                master_data.update({master_table: master_df})
-                pbar.update(1)
-
-        # 2. Instantiate metadata and enhance where necessary
+        # 1. Instantiate metadata and enhance where necessary
         compass_codes: DataFrame = self.conn.execute(
             """
             SELECT
@@ -408,27 +417,6 @@ class FinancePipeline:
             gl_accounts, gl_accounts_to_compass
         )
 
-        # 3. Load all data and append tables where necessary
-
-        # New Map to re-categroize each table as a "Scenario" based on the table name
-        final_labels = {
-            "actuals": "Actuals",
-            "commit_cc": "Committed",
-            "commit_wbs": "Committed",
-            "cost_center_details": "Cost Center Details",
-            "forecast_budget": "Budget",
-            "forecast_live_estimate": "Live Estimate",
-            "forecast_pre_budget": "Pre-Budget",
-            "forecast_trend": "Trend",
-        }
-        for table_label, table in master_data.items():
-            table["Scenario"] = final_labels.get(table_label, "Unknown")
-
-        # Start the transformation process
-
-        # Start with actuals
-
-        # ----- Process Data -----
         # Business Logic:
         # 1. Records posessing a WBS Element Code should be merged with the WBS Elements metdata
         # to retrieve their Profit Center and G/L Account details from there. These attributes should
@@ -437,47 +425,264 @@ class FinancePipeline:
         # 3. If G/L Accounts are not present, Cost Centers can be used to retrieve Compass Codes instead
         # by looking up the Cost Center to Compass mapping table that used the Standard Hierarchy Node to bridge both tables.
 
-        # ---- Begin with actulals ----
-        actuals: DataFrame = master_data["actuals"].rename(columns=self.COLUMN_RENAME)
-        # Let's drop existing WBS Element fields to avoid conflicts except WBS Element Code
-        actuals = actuals.drop(
-            columns=[col for col in wbs_enhanced.columns if col != "WBS Element Code"],
-            errors="ignore",
-        )
+        # 3. Process Actuals
 
-        actuals = actuals.merge(
-            wbs_enhanced, how="left", on="WBS Element Code", validate="many_to_one"
-        )
-
-        actuals["Native G/L Account"] = actuals["G/L Account"]
-        actuals["G/L Account"] = actuals["WBS G/L Account"].fillna(
-            actuals["WBS G/L Account"]
-        )
-        actuals["Profit Center Code"] = actuals["WBS Profit Center Code"].fillna(
-            actuals["Profit Center Code"]
-        )
-        actuals = actuals.drop(columns=["WBS Profit Center Code", "WBS G/L Account"])
-
-        actuals = actuals.merge(
-            gl_to_compass, how="left", on="G/L Account", validate="many_to_one"
-        )
-        actuals = actuals.merge(
-            compass_codes, how="left", on="Compass Code", validate="many_to_one"
-        )
-
+        actuals: DataFrame = self.conn.execute(
+            """
+            SELECT *
+            FROM actuals
+            """
+        ).df()
+        actuals = actuals.rename(columns=self.COLUMN_RENAME)
         actuals["Amount in Company Code Currency"] *= -1
-
-        actuals_fiscal_types = self.determine_fiscal_type(actuals)
+        actuals["Scenario"] = "Actuals"
+        actuals_wbs: DataFrame = self.get_wbs_attributes(actuals, wbs_enhanced)
 
         del actuals
         gc.collect()
 
-        # Let's save actuals to a parquet files that has been partitioned by year and period
-        # using DuckDB
-        # Instead of creating a table, export directly to a Parquet folder
-        self.conn.register("gold_actuals", actuals_fiscal_types)
-        self.conn.execute(f"""
-            COPY (SELECT * FROM gold_actuals)
+        # Get Compass Code
+        actuals_wbs = actuals_wbs.merge(
+            gl_to_compass, how="left", on="G/L Account", validate="many_to_one"
+        )
+        actuals_wbs = actuals_wbs.rename(columns={"Compass Code": "G/L Compass Code"})
+
+        # Compass Code using Cost Center
+        actuals_wbs = actuals_wbs.merge(
+            cost_center_to_compass,
+            how="left",
+            on="Cost Center Code",
+            validate="many_to_one",
+            suffixes=("_native", "_cc"),
+        )
+        actuals_wbs["Compass Code"] = actuals_wbs["Compass Code"].fillna(
+            actuals_wbs["G/L Compass Code"]
+        )
+        # Get Compass Code Text
+        actuals_wbs = actuals_wbs.merge(
+            compass_codes, how="left", on="Compass Code", validate="many_to_one"
+        )
+
+        actuals_wbs["Profit Center Code"] = actuals_wbs[
+            "Profit Center Code_native"
+        ].fillna(actuals_wbs["Profit Center Code_cc"])
+
+        actuals_wbs = actuals_wbs.drop(
+            columns=[
+                "G/L Compass Code",
+                "Profit Center Code_native",
+                "Profit Center Code_cc",
+            ]
+        )
+        # Get Signature Description
+        actuals_wbs = actuals_wbs.merge(
+            profit_centers_to_signatures,
+            how="left",
+            on="Profit Center Code",
+            validate="many_to_one",
+        )
+
+        # Split actuals into "non-M" WBS Element Codes and "M" WBS Element Codes
+        actuals_non_m = actuals_wbs.loc[actuals_wbs["WBS Type Char"] != "M"].copy()
+        actuals_m = actuals_wbs.loc[actuals_wbs["WBS Type Char"] == "M"].copy()
+
+        del actuals_wbs
+        gc.collect()
+
+        # Fiscal Type for "non-M" follows normal logic
+        gold_actuals_non_m: DataFrame = self.determine_fiscal_type(actuals_non_m)
+
+        # Fiscal Type for "M" WBS Element Codes should disregard the presence
+        # of WBS Element Codes
+        actuals_m["WBS Element Code Temp"] = actuals_m["WBS Element Code"]
+        actuals_m["WBS Element Code"] = pd.NA
+        gold_actuals_m = self.determine_fiscal_type(actuals_m)
+        gold_actuals_m["WBS Element Code"] = actuals_m["WBS Element Code Temp"].astype(
+            StringDtype()
+        )
+        gold_actuals_m = gold_actuals_m.drop(columns=["WBS Element Code Temp"])
+        gold_actuals = pd.concat([gold_actuals_m, gold_actuals_non_m])
+
+        # ---- Process Cost Center Details ----
+        cc_details: DataFrame = self.conn.execute(
+            """
+            SELECT *
+            FROM cost_center_details
+            """
+        ).df()
+        cc_details = cc_details.rename(columns=self.COLUMN_RENAME)
+        cc_details["Scenario"] = "Cost Center Details"
+        cc_details["Amount in Company Code Currency"] *= -1
+        cc_details_wbs: DataFrame = self.get_wbs_attributes(cc_details, wbs_enhanced)
+
+        del cc_details
+        gc.collect()
+
+        # Get Compass Code using G/L Account
+        cc_details_wbs = cc_details_wbs.merge(
+            gl_to_compass, how="left", on="G/L Account", validate="many_to_one"
+        )
+
+        # Rename these first Compass attributes with as "G/L" to signify their origins
+        cc_details_wbs = cc_details_wbs.rename(
+            columns={"Compass Code": "G/L Compass Code"}
+        )
+
+        # Let's get additional Compass Codes using the Standard Hierarchy Node
+        cc_details_wbs = cc_details_wbs.merge(
+            cost_center_to_compass,
+            how="left",
+            on="Cost Center Code",
+            validate="many_to_one",
+            suffixes=("_native", "_cc"),
+        )
+
+        cc_details_wbs["Profit Center Code"] = cc_details_wbs[
+            "Profit Center Code_native"
+        ].fillna(cc_details_wbs["Profit Center Code_cc"])
+
+        cc_details_wbs["Compass Code"] = cc_details_wbs["Compass Code"].fillna(
+            cc_details_wbs["G/L Compass Code"]
+        )
+        cc_details_wbs = cc_details_wbs.drop(
+            columns=[
+                "G/L Compass Code",
+                "Profit Center Code_native",
+                "Profit Center Code_cc",
+            ]
+        )
+
+        # Get Compass Code Text
+        cc_details_wbs = cc_details_wbs.merge(
+            compass_codes, how="left", on="Compass Code", validate="many_to_one"
+        )
+        # Get Signature Descriptions
+        cc_details_wbs = cc_details_wbs.merge(
+            profit_centers_to_signatures,
+            how="left",
+            on="Profit Center Code",
+            validate="many_to_one",
+        )
+
+        gold_cc_details = self.determine_fiscal_type(cc_details_wbs)
+
+        # ---- Process WBS Committed ----
+        commit_wbs: DataFrame = self.conn.execute(
+            """
+            SELECT *
+            FROM commit_wbs
+            """
+        ).df()
+        commit_wbs = commit_wbs.rename(columns=self.COLUMN_RENAME)
+        # Find columns that contain the word "date" and format as datetime
+
+        for col in commit_wbs.columns:
+            if "date" in col.lower():
+                commit_wbs[col] = pd.to_datetime(
+                    commit_wbs[col], errors="coerce", format="%m/%d/%Y"
+                )
+
+        commit_wbs["Fiscal Type"] = "WBS"
+        commit_wbs["Profit Center Code"] = pd.NA
+        commit_wbs_enhanced: DataFrame = self.get_wbs_attributes(
+            commit_wbs, wbs_enhanced
+        )
+
+        del commit_wbs
+        gc.collect()
+
+        # Get Compass Codes using G/L Account
+        commit_wbs_enhanced = commit_wbs_enhanced.merge(
+            gl_to_compass, on="G/L Account", how="left", validate="many_to_one"
+        )
+
+        # Get Compass Text
+        commit_wbs_enhanced = commit_wbs_enhanced.merge(
+            compass_codes, on="Compass Code", how="left", validate="many_to_one"
+        )
+
+        # ---- Process Cost Center Committed ----
+        commit_cc: DataFrame = self.conn.execute(
+            """
+            SELECT *
+            FROM commit_cc
+            """
+        ).df()
+        commit_cc = commit_cc.rename(columns=self.COLUMN_RENAME)
+
+        for col in commit_cc.columns:
+            if "date" in col.lower():
+                commit_cc[col] = pd.to_datetime(
+                    commit_cc[col], errors="coerce", format="%m/%d/%Y"
+                )
+
+        commit_cc["Fiscal Type"] = "COST CENTER"
+        commit_cc = commit_cc.merge(
+            gl_to_compass, how="left", on="G/L Account", validate="many_to_one"
+        )
+        commit_cc = commit_cc.rename(columns={"Compass Code": "G/L Compass Code"})
+
+        # Get Compass Codes using Cost Center
+        commit_cc = commit_cc.merge(
+            cost_center_to_compass,
+            on="Cost Center Code",
+            how="left",
+            validate="many_to_one",
+        )
+        commit_cc["Compass Code"] = commit_cc["Compass Code"].fillna(
+            commit_cc["G/L Compass Code"]
+        )
+        commit_cc = commit_cc.drop(columns=["G/L Compass Code"])
+
+        # Get Compass Text
+        commit_cc = commit_cc.merge(
+            compass_codes,
+            how="left",
+            on="Compass Code",
+            validate="many_to_one",
+        )
+
+        gold_committed: DataFrame = pd.concat(
+            [commit_wbs_enhanced, commit_cc], ignore_index=True
+        )
+
+        del commit_wbs_enhanced
+        del commit_cc
+        gc.collect()
+
+        # Get Signature Codes using Profit Center Codes
+        gold_committed = gold_committed.merge(
+            profit_centers_to_signatures,
+            how="left",
+            on="Profit Center Code",
+            validate="many_to_one",
+        )
+        gold_committed["Scenario"] = "Committed"
+
+        # ---- Store transformed data ----
+        gold_dataset = pd.concat(
+            [gold_actuals, gold_cc_details, gold_committed], ignore_index=True
+        )
+        gold_dataset["Year"] = gold_dataset["Fiscal Year"]
+        gold_dataset["Month"] = gold_dataset["Fiscal Period"]
+
+        del gold_actuals
+        del gold_cc_details
+        del gold_committed
+        gc.collect()
+
+        self.conn.register("gold_dataset", gold_dataset)
+        self.conn.execute(
+            f"""
+            COPY (SELECT * FROM gold_dataset)
             TO '{output_path}'
-            (FORMAT PARQUET, PARTITION_BY ("Fiscal Year", "Fiscal Period"), OVERWRITE_OR_IGNORE 1)
-        """)
+            (FORMAT PARQUET, PARTITION_BY ("Year", "Month"), OVERWRITE_OR_IGNORE 1)
+            """
+        )
+        self.conn.execute(
+            """
+            CREATE OR REPLACE TABLE gold_dataset AS
+            SELECT * FROM gold_dataset
+            """
+        )
+        self.conn.unregister("gold_dataset")

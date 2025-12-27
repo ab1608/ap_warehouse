@@ -1,6 +1,7 @@
 import argparse
 import os
 import sys
+import time
 from pathlib import Path
 
 import duckdb
@@ -138,8 +139,13 @@ def main(argv=None) -> None:
         conn = duckdb.connect(database=str(database_path))
         print(f"Connected to database at {database_path}")
         pipeline = FinancePipeline(conn)
+        tic = time.perf_counter()
+        print("Starting transformations...")
         pipeline.run_transformation(Path(str(args.output_path)))
-        print("Transformation complete. Closing database and exiting program.")
+        toc = time.perf_counter()
+        print(
+            f"Transformation took {toc - tic:0.2f} seconds. Closing database and exiting program."
+        )
         conn.close()
         sys.exit(0)
 
