@@ -685,24 +685,34 @@ class FinancePipeline:
             .rename(columns={"Year": "year", "Month": "month"})
             .assign(day=1)
         )
+        gold_dataset.insert(0, "Index", range(1, len(gold_dataset) + 1))
+        gold_dataset["Index"] = gold_dataset["Index"].astype(Int64Dtype())
 
         del gold_actuals
         del gold_cc_details
         del gold_committed
         gc.collect()
 
-        self.conn.register("gold_dataset", gold_dataset)
+        self.conn.register("gold_df_view", gold_dataset)
         self.conn.execute(
             f"""
-            COPY (SELECT * FROM gold_dataset)
-            TO '{output_path}'
-            (FORMAT PARQUET, PARTITION_BY ("Year", "Month"), OVERWRITE_OR_IGNORE 1)
+         COPY (
+            SELECT
+                * EXCLUDE ("PartitionDate"),
+                CAST(PartitionDate AS TIMESTAMP) AS PartitionDate
+            FROM
+                gold_df_view
+        ) TO '{output_path}' (FORMAT PARQUET, PARTITION_BY ("Year", "Month"), OVERWRITE_OR_IGNORE 1)
             """
         )
         self.conn.execute(
             """
             CREATE OR REPLACE TABLE gold_dataset AS
-            SELECT * FROM gold_dataset
+            (SELECT
+                * EXCLUDE ("PartitionDate"),
+                CAST(PartitionDate AS TIMESTAMP) AS PartitionDate
+            FROM
+                gold_df_view)
             """
         )
-        self.conn.unregister("gold_dataset")
+        self.conn.unregister("gold_df_view")

@@ -106,7 +106,7 @@ def main(argv=None) -> None:
     elif args.command == "import":
         database_path = Path(str(args.database_path))
         conn = duckdb.connect(database=database_path)
-        print(f"Connected to database at {database_path}")
+        print(f"Connected to database...")
         pipeline = FinancePipeline(conn)
 
         data_files: list[Path] = []
