@@ -125,7 +125,9 @@ def main(argv=None) -> None:
                 )
 
         if data_files:
-            print(f"Found {len(data_files)} data files to in directory.")
+            print(
+                f"Found {len(data_files)} data files to import. Determining how many are new..."
+            )
             pipeline.run_import(data_files)
             print("Data import complete. Closing database and exiting program.")
         else:

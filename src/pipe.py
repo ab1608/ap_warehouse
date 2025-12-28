@@ -6,7 +6,6 @@ import numpy as np
 import pandas as pd
 from duckdb import DuckDBPyConnection
 from pandas import DataFrame, Float64Dtype, Int64Dtype, StringDtype
-from tqdm import tqdm
 
 
 class FinancePipeline:
@@ -226,11 +225,12 @@ class FinancePipeline:
         files_to_process: list[Path] = self.get_new_files(data_files)
 
         if not files_to_process:
-            print("No new data files found to ingest. Exiting program.")
+            print("No new data files found to ingest.")
             return
+        else:
+            print(f"Found {len(files_to_process)} new files to process.")
 
         # 2. Categorize each file into its respective table
-
         for data_file in files_to_process:
             fname = data_file.name.lower()
             if "ccdet" in fname:
@@ -255,7 +255,7 @@ class FinancePipeline:
         # 3. Process each bucket of files into their respective tables
         for table_key, file_list in self.master_tables.items():
             if not file_list:
-                print(f"No new files to process for table {table_key}. Skipping.")
+                print(f"No new {table_key} files to process. Skipping.")
                 continue
 
             print(f"Moving {len(file_list)} files to table {table_key}...")
@@ -273,6 +273,25 @@ class FinancePipeline:
                             index_col=False,
                         )
                         df["source_file"] = file_path.name
+
+                    # Create PartitionDate column
+                    if "Period" in df.columns:
+                        df["PartitionDate"] = pd.to_datetime(
+                            df[["Fiscal Year", "Period"]]
+                            .rename(columns={"Fiscal Year": "year", "Period": "month"})
+                            .assign(day=1)
+                        )
+                    elif "Fiscal Period" in df.columns:
+                        df["PartitionDate"] = pd.to_datetime(
+                            df[["Fiscal Year", "Fiscal Period"]]
+                            .rename(
+                                columns={
+                                    "Fiscal Year": "year",
+                                    "Fiscal Period": "month",
+                                }
+                            )
+                            .assign(day=1)
+                        )
 
                     self.conn.register("df_typed", df)
                     self.conn.execute("BEGIN TRANSACTION")
@@ -429,8 +448,7 @@ class FinancePipeline:
 
         actuals: DataFrame = self.conn.execute(
             """
-            SELECT *
-            FROM actuals
+            SELECT * FROM actuals
             """
         ).df()
         actuals = actuals.rename(columns=self.COLUMN_RENAME)
@@ -506,8 +524,7 @@ class FinancePipeline:
         # ---- Process Cost Center Details ----
         cc_details: DataFrame = self.conn.execute(
             """
-            SELECT *
-            FROM cost_center_details
+            SELECT * FROM cost_center_details
             """
         ).df()
         cc_details = cc_details.rename(columns=self.COLUMN_RENAME)
@@ -569,8 +586,7 @@ class FinancePipeline:
         # ---- Process WBS Committed ----
         commit_wbs: DataFrame = self.conn.execute(
             """
-            SELECT *
-            FROM commit_wbs
+            SELECT * FROM commit_wbs
             """
         ).df()
         commit_wbs = commit_wbs.rename(columns=self.COLUMN_RENAME)
@@ -604,8 +620,7 @@ class FinancePipeline:
         # ---- Process Cost Center Committed ----
         commit_cc: DataFrame = self.conn.execute(
             """
-            SELECT *
-            FROM commit_cc
+            SELECT * FROM commit_cc
             """
         ).df()
         commit_cc = commit_cc.rename(columns=self.COLUMN_RENAME)
@@ -665,6 +680,11 @@ class FinancePipeline:
         )
         gold_dataset["Year"] = gold_dataset["Fiscal Year"]
         gold_dataset["Month"] = gold_dataset["Fiscal Period"]
+        gold_dataset["PartitionDate"] = pd.to_datetime(
+            gold_dataset[["Year", "Month"]]
+            .rename(columns={"Year": "year", "Month": "month"})
+            .assign(day=1)
+        )
 
         del gold_actuals
         del gold_cc_details
