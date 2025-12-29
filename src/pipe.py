@@ -97,10 +97,13 @@ class FinancePipeline:
             "WBS Element": StringDtype(),
             "WBS Element Name": StringDtype(),
             "WBS Element External ID": StringDtype(),
+            "YEAR": Int64Dtype(),
+            "PERIOD": StringDtype(),
+            "P&L DESTINATION ACCOUNT": Int64Dtype(),
         },
     )
 
-    COLUMN_RENAME: dict[str, str] = {
+    SAP_COLUMN_RENAME = {
         "Cost Center": "Cost Center Code",
         "Cost element": "G/L Account",
         "G/L Account Long Name": "G/L Account Name",
@@ -116,6 +119,27 @@ class FinancePipeline:
         "WBS Element": "WBS Element Code",
         "WBS Element External ID": "WBS Element Code",
         "WBS element": "WBS Element Code",
+    }
+
+    FORECAST_COLUMN_RENAME = {
+        "AXE": "Axe",
+        "BRAND": "Brand",
+        "BUDGET OWNER": "Budget Owner",
+        "CODE (L1_CC_Oth)": "Code 1",
+        "CODE DESCRIPTION  (L1_CC_Oth)": "Code 1 Description",
+        "CODE (L2)": "Code 2",
+        "CODE DESCRIPTION (L2)": "Code 2 Description",
+        "COMPANY CODE": "Company Code",
+        "P&L LINE COMPASS CODE_FS": "Compass Code",
+        "TYPE": "Detailed Type",
+        "YEAR": "Fiscal Year",
+        "P&L DESTINATION ACCOUNT": "G/L Account",
+        "SIGNATURE CODE": "Signature Code",
+        "SUB BRAND": "Sub Brand",
+        "SUB-AXE": "Sub-Axe",
+        "Value": "Amount in Company Code Currency",
+        "PRODUCT CODE": "Product Code",
+        "SPEND TYPE": "Spend Type",
     }
 
     def __init__(
@@ -304,13 +328,14 @@ class FinancePipeline:
                         df["source_file"] = file_path.name
 
                     # Create PartitionDate column
-                    if "Period" in df.columns:
+                    df_cols = df.columns.to_list()
+                    if "Period" in df_cols:
                         df["PartitionDate"] = pd.to_datetime(
                             df[["Fiscal Year", "Period"]]
                             .rename(columns={"Fiscal Year": "year", "Period": "month"})
                             .assign(day=1)
                         )
-                    elif "Fiscal Period" in df.columns:
+                    elif "Fiscal Period" in df_cols:
                         df["PartitionDate"] = pd.to_datetime(
                             df[["Fiscal Year", "Fiscal Period"]]
                             .rename(
@@ -321,6 +346,31 @@ class FinancePipeline:
                             )
                             .assign(day=1)
                         )
+                    # TODO: Confirm if "Last Refresh" is required
+                    elif "Last Refresh" in df_cols:
+                        df["Fiscal Period"] = df["PERIOD"].str.extract("(\d+)")
+                        df["Fiscal Period"] = pd.to_numeric(
+                            df["Fiscal Period"], errors="coerce"
+                        )
+                        df["Fiscal Period"] = (
+                            df["Fiscal Period"].fillna(0).astype(Int64Dtype())
+                        )
+
+                        df.loc[df["Fiscal Period"] != 0, "PartitionDate"] = (
+                            pd.to_datetime(
+                                df.loc[
+                                    df["Fiscal Period"] != 0, ["YEAR", "Fiscal Period"]
+                                ]
+                                .rename(
+                                    columns={"YEAR": "year", "Fiscal Period": "month"}
+                                )
+                                .assign(day=1)
+                            )
+                        )
+
+                    date_cols = [col for col in df_cols if "date" in col.lower()]
+                    for date_col in date_cols:
+                        df[date_col] = pd.to_datetime(df[date_col], format="%m/%d/%Y")
 
                     self.conn.register("df_typed", df)
                     self.conn.execute("BEGIN TRANSACTION")
@@ -361,7 +411,7 @@ class FinancePipeline:
         if missing:
             raise ValueError(f"Missing required meta_frames: {', '.join(missing)}")
 
-        actuals = actuals.rename(columns=self.COLUMN_RENAME)
+        actuals = actuals.rename(columns=self.SAP_COLUMN_RENAME)
         actuals["Amount in Company Code Currency"] *= -1
         actuals["Scenario"] = "Actuals"
         actuals_wbs: DataFrame = self.get_wbs_attributes(
@@ -443,7 +493,7 @@ class FinancePipeline:
     def make_gold_cc_details(
         self, cc_details: DataFrame, meta_frames: CostCenterMetadata
     ) -> DataFrame:
-        cc_details = cc_details.rename(columns=self.COLUMN_RENAME)
+        cc_details = cc_details.rename(columns=self.SAP_COLUMN_RENAME)
         cc_details["Scenario"] = "Cost Center Details"
         cc_details["Amount in Company Code Currency"] *= -1
         cc_details_wbs: DataFrame = self.get_wbs_attributes(
@@ -510,7 +560,7 @@ class FinancePipeline:
     def make_gold_commit_wbs(
         self, commit_wbs: DataFrame, meta_frame: CommitWBSMetadata
     ) -> DataFrame:
-        commit_wbs = commit_wbs.rename(columns=self.COLUMN_RENAME)
+        commit_wbs = commit_wbs.rename(columns=self.SAP_COLUMN_RENAME)
 
         # Find columns that contain the word "date" and format as datetime
         for col in commit_wbs.columns:
@@ -547,7 +597,7 @@ class FinancePipeline:
     def make_gold_commit_cc(
         self, commit_cc: DataFrame, meta_frame: CommitCostCenterMetadat
     ):
-        commit_cc = commit_cc.rename(columns=self.COLUMN_RENAME)
+        commit_cc = commit_cc.rename(columns=self.SAP_COLUMN_RENAME)
 
         for col in commit_cc.columns:
             if "date" in col.lower():
@@ -792,17 +842,126 @@ class FinancePipeline:
         )
         gold_committed["Scenario"] = "Committed"
 
+        # ---- Process Forecasted Data ----
+        live_estimate = self.conn.execute(
+            """
+            SELECT
+                *,
+                'Live Estimate' AS "Scenario",
+                "SPEND TYPE" AS 'Fiscal Type'
+            FROM forecast_live_estimate
+            WHERE "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
+            """
+        ).df()
+
+        pre_budget = self.conn.execute(
+            """
+            SELECT
+                *,
+                'Pre-Budget' AS "Scenario",
+                "SPEND TYPE" AS 'Fiscal Type'
+            FROM forecast_pre_budget
+            WHERE "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
+            """
+        ).df()
+
+        budget = self.conn.execute(
+            """
+            SELECT
+              *,
+              'Budget' AS "Scenario",
+              "SPEND TYPE" AS 'Fiscal Type'
+            FROM
+              forecast_budget
+            WHERE
+              "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
+            """
+        ).df()
+
+        trend = self.conn.execute(
+            """
+            SELECT
+              *,
+              CASE
+                WHEN 'T03' in "source_file" THEN 'Trend 3'
+                WHEN 'T05' in "source_file" THEN 'Trend 5'
+                WHEN 'T09' in "source_file" THEN 'Trend 9'
+                ELSE NULL
+              END AS 'Scenario',
+              "SPEND TYPE" AS 'Fiscal Type'
+            FROM
+              forecast_trend
+            WHERE
+              "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
+            """
+        ).df()
+
+        forecast = pd.concat(
+            [live_estimate, pre_budget, budget, trend], ignore_index=True
+        )
+        forecast = forecast.rename(columns=self.FORECAST_COLUMN_RENAME)
+
+        forecast["Amount in Company Code Currency"] *= -1
+
+        # PERIODs in forecasted are formatted as "M04_T", "M10_B", etc.
+        # so let's extract the numerical portion only
+        forecast["Code 1 Concatenated"] = (
+            forecast["Code 1"] + forecast["Code 1 Description"]
+        )
+        forecast["Code 2 Concatenated"] = (
+            forecast["Code 2"] + forecast["Code 2 Description"]
+        )
+
+        # Code 1 and Code 2 contain Cost Center Codes and WBS Element Codes, respectively
+        gold_forecast = forecast.merge(
+            cost_center_to_compass,
+            how="left",
+            left_on="Code 1",
+            right_on="Cost Center Code",
+            validate="many_to_one",
+            suffixes=("_native", "_cc"),
+        )
+
+        gold_forecast = gold_forecast.merge(
+            wbs_enhanced,
+            how="left",
+            left_on="Code 2",
+            right_on="WBS Element Code",
+            validate="many_to_one",
+            suffixes=("_native", "_wbs"),
+        )
+
+        gold_forecast["G/L Account"] = gold_forecast["G/L Account"].fillna(
+            gold_forecast["WBS G/L Account"]
+        )
+
+        # Fill Profit Center Code given by CC with WBS
+        gold_forecast["Profit Center Code"] = (
+            gold_forecast["Profit Center Code"]
+            .fillna(gold_forecast["WBS Profit Center Code"])
+            .astype(StringDtype())
+        )
+        # Fill Compass Code found in original dataset with that obtained from CC
+        gold_forecast["Compass Code"] = (
+            gold_forecast["Compass Code_native"]
+            .fillna(gold_forecast["Compass Code_cc"])
+            .astype(StringDtype())
+        )
+        gold_forecast = gold_forecast.drop(
+            columns=[
+                "Compass Code_native",
+                "Compass Code_cc",
+                "WBS G/L Account",
+            ]
+        )
+
         # ---- Store transformed data ----
         gold_dataset = pd.concat(
-            [gold_actuals, gold_cc_details, gold_committed], ignore_index=True
+            [gold_actuals, gold_cc_details, gold_committed, gold_forecast],
+            ignore_index=True,
         )
         gold_dataset["Year"] = gold_dataset["Fiscal Year"]
         gold_dataset["Month"] = gold_dataset["Fiscal Period"]
-        gold_dataset["PartitionDate"] = pd.to_datetime(
-            gold_dataset[["Year", "Month"]]
-            .rename(columns={"Year": "year", "Month": "month"})
-            .assign(day=1)
-        )
         gold_dataset.insert(0, "Index", range(1, len(gold_dataset) + 1))
         gold_dataset["Index"] = gold_dataset["Index"].astype(Int64Dtype())
 
