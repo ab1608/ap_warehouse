@@ -1,11 +1,40 @@
 import gc
 from collections import defaultdict
 from pathlib import Path
+from typing import TypedDict
 
 import numpy as np
 import pandas as pd
 from duckdb import DuckDBPyConnection
 from pandas import DataFrame, Float64Dtype, Int64Dtype, StringDtype
+
+
+class ActualsMetadata(TypedDict):
+    wbs_enhanced: DataFrame
+    gl_to_compass: DataFrame
+    cost_center_to_compass: DataFrame
+    compass_codes: DataFrame
+    profit_centers_to_signatures: DataFrame
+
+
+class CostCenterMetadata(TypedDict):
+    wbs_enhanced: DataFrame
+    gl_to_compass: DataFrame
+    cost_center_to_compass: DataFrame
+    compass_codes: DataFrame
+    profit_centers_to_signatures: DataFrame
+
+
+class CommitWBSMetadata(TypedDict):
+    wbs_enhanced: DataFrame
+    gl_to_compass: DataFrame
+    compass_codes: DataFrame
+
+
+class CommitCostCenterMetadat(TypedDict):
+    gl_to_compass: DataFrame
+    cost_center_to_compass: DataFrame
+    compass_codes: DataFrame
 
 
 class FinancePipeline:
@@ -314,6 +343,247 @@ class FinancePipeline:
                     self.conn.execute("ROLLBACK")
                     print(f"Error processing file {file_path.name}: {e}")
 
+    # 3. Process Actuals
+    def make_gold_actuals(
+        self, actuals: DataFrame, meta_frames: ActualsMetadata
+    ) -> DataFrame:
+        # Define required keys
+        required_keys = {
+            "wbs_enhanced",
+            "gl_to_compass",
+            "cost_center_to_compass",
+            "compass_codes",
+            "profit_centers_to_signatures",
+        }
+
+        # Check for missing keys
+        missing = required_keys - set(meta_frames.keys())
+        if missing:
+            raise ValueError(f"Missing required meta_frames: {', '.join(missing)}")
+
+        actuals = actuals.rename(columns=self.COLUMN_RENAME)
+        actuals["Amount in Company Code Currency"] *= -1
+        actuals["Scenario"] = "Actuals"
+        actuals_wbs: DataFrame = self.get_wbs_attributes(
+            actuals, meta_frames["wbs_enhanced"]
+        )
+
+        del actuals
+        gc.collect()
+
+        # Get Compass Code
+        actuals_wbs = actuals_wbs.merge(
+            meta_frames["gl_to_compass"],
+            how="left",
+            on="G/L Account",
+            validate="many_to_one",
+        )
+        actuals_wbs = actuals_wbs.rename(columns={"Compass Code": "G/L Compass Code"})
+
+        # Compass Code using Cost Center
+        actuals_wbs = actuals_wbs.merge(
+            meta_frames["cost_center_to_compass"],
+            how="left",
+            on="Cost Center Code",
+            validate="many_to_one",
+            suffixes=("_native", "_cc"),
+        )
+        actuals_wbs["Compass Code"] = actuals_wbs["Compass Code"].fillna(
+            actuals_wbs["G/L Compass Code"]
+        )
+        # Get Compass Code Text
+        actuals_wbs = actuals_wbs.merge(
+            meta_frames["compass_codes"],
+            how="left",
+            on="Compass Code",
+            validate="many_to_one",
+        )
+
+        actuals_wbs["Profit Center Code"] = actuals_wbs[
+            "Profit Center Code_native"
+        ].fillna(actuals_wbs["Profit Center Code_cc"])
+
+        actuals_wbs = actuals_wbs.drop(
+            columns=[
+                "G/L Compass Code",
+                "Profit Center Code_native",
+                "Profit Center Code_cc",
+            ]
+        )
+        # Get Signature Description
+        actuals_wbs = actuals_wbs.merge(
+            meta_frames["profit_centers_to_signatures"],
+            how="left",
+            on="Profit Center Code",
+            validate="many_to_one",
+        )
+
+        # Split actuals into "non-M" WBS Element Codes and "M" WBS Element Codes
+        actuals_non_m = actuals_wbs.loc[actuals_wbs["WBS Type Char"] != "M"].copy()
+        actuals_m = actuals_wbs.loc[actuals_wbs["WBS Type Char"] == "M"].copy()
+
+        del actuals_wbs
+        gc.collect()
+
+        # Fiscal Type for "non-M" follows normal logic
+        gold_actuals_non_m: DataFrame = self.determine_fiscal_type(actuals_non_m)
+
+        # Fiscal Type for "M" WBS Element Codes should disregard the presence
+        # of WBS Element Codes
+        actuals_m["WBS Element Code Temp"] = actuals_m["WBS Element Code"]
+        actuals_m["WBS Element Code"] = pd.NA
+        gold_actuals_m = self.determine_fiscal_type(actuals_m)
+        gold_actuals_m["WBS Element Code"] = actuals_m["WBS Element Code Temp"].astype(
+            StringDtype()
+        )
+        gold_actuals_m = gold_actuals_m.drop(columns=["WBS Element Code Temp"])
+
+        return pd.concat([gold_actuals_m, gold_actuals_non_m])
+
+    def make_gold_cc_details(
+        self, cc_details: DataFrame, meta_frames: CostCenterMetadata
+    ) -> DataFrame:
+        cc_details = cc_details.rename(columns=self.COLUMN_RENAME)
+        cc_details["Scenario"] = "Cost Center Details"
+        cc_details["Amount in Company Code Currency"] *= -1
+        cc_details_wbs: DataFrame = self.get_wbs_attributes(
+            cc_details, meta_frames["wbs_enhanced"]
+        )
+
+        del cc_details
+        gc.collect()
+
+        # Get Compass Code using G/L Account
+        cc_details_wbs = cc_details_wbs.merge(
+            meta_frames["gl_to_compass"],
+            how="left",
+            on="G/L Account",
+            validate="many_to_one",
+        )
+
+        # Rename these first Compass attributes with as "G/L" to signify their origins
+        cc_details_wbs = cc_details_wbs.rename(
+            columns={"Compass Code": "G/L Compass Code"}
+        )
+
+        # Let's get additional Compass Codes using the Standard Hierarchy Node
+        cc_details_wbs = cc_details_wbs.merge(
+            meta_frames["cost_center_to_compass"],
+            how="left",
+            on="Cost Center Code",
+            validate="many_to_one",
+            suffixes=("_native", "_cc"),
+        )
+
+        cc_details_wbs["Profit Center Code"] = cc_details_wbs[
+            "Profit Center Code_native"
+        ].fillna(cc_details_wbs["Profit Center Code_cc"])
+
+        cc_details_wbs["Compass Code"] = cc_details_wbs["Compass Code"].fillna(
+            cc_details_wbs["G/L Compass Code"]
+        )
+        cc_details_wbs = cc_details_wbs.drop(
+            columns=[
+                "G/L Compass Code",
+                "Profit Center Code_native",
+                "Profit Center Code_cc",
+            ]
+        )
+
+        # Get Compass Code Text
+        cc_details_wbs = cc_details_wbs.merge(
+            meta_frames["compass_codes"],
+            how="left",
+            on="Compass Code",
+            validate="many_to_one",
+        )
+        # Get Signature Descriptions
+        cc_details_wbs = cc_details_wbs.merge(
+            meta_frames["profit_centers_to_signatures"],
+            how="left",
+            on="Profit Center Code",
+            validate="many_to_one",
+        )
+
+        return self.determine_fiscal_type(cc_details_wbs)
+
+    def make_gold_commit_wbs(
+        self, commit_wbs: DataFrame, meta_frame: CommitWBSMetadata
+    ) -> DataFrame:
+        commit_wbs = commit_wbs.rename(columns=self.COLUMN_RENAME)
+
+        # Find columns that contain the word "date" and format as datetime
+        for col in commit_wbs.columns:
+            if "date" in col.lower():
+                commit_wbs[col] = pd.to_datetime(
+                    commit_wbs[col], errors="coerce", format="%m/%d/%Y"
+                )
+
+        commit_wbs["Fiscal Type"] = "WBS"
+        commit_wbs["Profit Center Code"] = pd.NA
+        commit_wbs_enhanced: DataFrame = self.get_wbs_attributes(
+            commit_wbs, meta_frame["wbs_enhanced"]
+        )
+
+        del commit_wbs
+        gc.collect()
+
+        # Get Compass Codes using G/L Account
+        commit_wbs_enhanced = commit_wbs_enhanced.merge(
+            meta_frame["gl_to_compass"],
+            on="G/L Account",
+            how="left",
+            validate="many_to_one",
+        )
+
+        # Get Compass Text
+        return commit_wbs_enhanced.merge(
+            meta_frame["compass_codes"],
+            on="Compass Code",
+            how="left",
+            validate="many_to_one",
+        )
+
+    def make_gold_commit_cc(
+        self, commit_cc: DataFrame, meta_frame: CommitCostCenterMetadat
+    ):
+        commit_cc = commit_cc.rename(columns=self.COLUMN_RENAME)
+
+        for col in commit_cc.columns:
+            if "date" in col.lower():
+                commit_cc[col] = pd.to_datetime(
+                    commit_cc[col], errors="coerce", format="%m/%d/%Y"
+                )
+
+        commit_cc["Fiscal Type"] = "COST CENTER"
+        commit_cc = commit_cc.merge(
+            meta_frame["gl_to_compass"],
+            how="left",
+            on="G/L Account",
+            validate="many_to_one",
+        )
+        commit_cc = commit_cc.rename(columns={"Compass Code": "G/L Compass Code"})
+
+        # Get Compass Codes using Cost Center
+        commit_cc = commit_cc.merge(
+            meta_frame["cost_center_to_compass"],
+            on="Cost Center Code",
+            how="left",
+            validate="many_to_one",
+        )
+        commit_cc["Compass Code"] = commit_cc["Compass Code"].fillna(
+            commit_cc["G/L Compass Code"]
+        )
+        commit_cc = commit_cc.drop(columns=["G/L Compass Code"])
+
+        # Get Compass Text
+        return commit_cc.merge(
+            meta_frame["compass_codes"],
+            how="left",
+            on="Compass Code",
+            validate="many_to_one",
+        )
+
     def run_transformation(self, output_path: Path) -> None:
         """Run transformation on data found in the database.
 
@@ -444,82 +714,23 @@ class FinancePipeline:
         # 3. If G/L Accounts are not present, Cost Centers can be used to retrieve Compass Codes instead
         # by looking up the Cost Center to Compass mapping table that used the Standard Hierarchy Node to bridge both tables.
 
-        # 3. Process Actuals
-
         actuals: DataFrame = self.conn.execute(
             """
             SELECT * FROM actuals
             """
         ).df()
-        actuals = actuals.rename(columns=self.COLUMN_RENAME)
-        actuals["Amount in Company Code Currency"] *= -1
-        actuals["Scenario"] = "Actuals"
-        actuals_wbs: DataFrame = self.get_wbs_attributes(actuals, wbs_enhanced)
+
+        meta_frame: ActualsMetadata = {
+            "compass_codes": compass_codes,
+            "cost_center_to_compass": cost_center_to_compass,
+            "gl_to_compass": gl_to_compass,
+            "profit_centers_to_signatures": profit_centers_to_signatures,
+            "wbs_enhanced": wbs_enhanced,
+        }
+        gold_actuals = self.make_gold_actuals(actuals, meta_frame)
 
         del actuals
         gc.collect()
-
-        # Get Compass Code
-        actuals_wbs = actuals_wbs.merge(
-            gl_to_compass, how="left", on="G/L Account", validate="many_to_one"
-        )
-        actuals_wbs = actuals_wbs.rename(columns={"Compass Code": "G/L Compass Code"})
-
-        # Compass Code using Cost Center
-        actuals_wbs = actuals_wbs.merge(
-            cost_center_to_compass,
-            how="left",
-            on="Cost Center Code",
-            validate="many_to_one",
-            suffixes=("_native", "_cc"),
-        )
-        actuals_wbs["Compass Code"] = actuals_wbs["Compass Code"].fillna(
-            actuals_wbs["G/L Compass Code"]
-        )
-        # Get Compass Code Text
-        actuals_wbs = actuals_wbs.merge(
-            compass_codes, how="left", on="Compass Code", validate="many_to_one"
-        )
-
-        actuals_wbs["Profit Center Code"] = actuals_wbs[
-            "Profit Center Code_native"
-        ].fillna(actuals_wbs["Profit Center Code_cc"])
-
-        actuals_wbs = actuals_wbs.drop(
-            columns=[
-                "G/L Compass Code",
-                "Profit Center Code_native",
-                "Profit Center Code_cc",
-            ]
-        )
-        # Get Signature Description
-        actuals_wbs = actuals_wbs.merge(
-            profit_centers_to_signatures,
-            how="left",
-            on="Profit Center Code",
-            validate="many_to_one",
-        )
-
-        # Split actuals into "non-M" WBS Element Codes and "M" WBS Element Codes
-        actuals_non_m = actuals_wbs.loc[actuals_wbs["WBS Type Char"] != "M"].copy()
-        actuals_m = actuals_wbs.loc[actuals_wbs["WBS Type Char"] == "M"].copy()
-
-        del actuals_wbs
-        gc.collect()
-
-        # Fiscal Type for "non-M" follows normal logic
-        gold_actuals_non_m: DataFrame = self.determine_fiscal_type(actuals_non_m)
-
-        # Fiscal Type for "M" WBS Element Codes should disregard the presence
-        # of WBS Element Codes
-        actuals_m["WBS Element Code Temp"] = actuals_m["WBS Element Code"]
-        actuals_m["WBS Element Code"] = pd.NA
-        gold_actuals_m = self.determine_fiscal_type(actuals_m)
-        gold_actuals_m["WBS Element Code"] = actuals_m["WBS Element Code Temp"].astype(
-            StringDtype()
-        )
-        gold_actuals_m = gold_actuals_m.drop(columns=["WBS Element Code Temp"])
-        gold_actuals = pd.concat([gold_actuals_m, gold_actuals_non_m])
 
         # ---- Process Cost Center Details ----
         cc_details: DataFrame = self.conn.execute(
@@ -527,142 +738,49 @@ class FinancePipeline:
             SELECT * FROM cost_center_details
             """
         ).df()
-        cc_details = cc_details.rename(columns=self.COLUMN_RENAME)
-        cc_details["Scenario"] = "Cost Center Details"
-        cc_details["Amount in Company Code Currency"] *= -1
-        cc_details_wbs: DataFrame = self.get_wbs_attributes(cc_details, wbs_enhanced)
+        gold_cc_details = self.make_gold_cc_details(
+            cc_details, CostCenterMetadata(meta_frame)
+        )
 
         del cc_details
         gc.collect()
 
-        # Get Compass Code using G/L Account
-        cc_details_wbs = cc_details_wbs.merge(
-            gl_to_compass, how="left", on="G/L Account", validate="many_to_one"
-        )
-
-        # Rename these first Compass attributes with as "G/L" to signify their origins
-        cc_details_wbs = cc_details_wbs.rename(
-            columns={"Compass Code": "G/L Compass Code"}
-        )
-
-        # Let's get additional Compass Codes using the Standard Hierarchy Node
-        cc_details_wbs = cc_details_wbs.merge(
-            cost_center_to_compass,
-            how="left",
-            on="Cost Center Code",
-            validate="many_to_one",
-            suffixes=("_native", "_cc"),
-        )
-
-        cc_details_wbs["Profit Center Code"] = cc_details_wbs[
-            "Profit Center Code_native"
-        ].fillna(cc_details_wbs["Profit Center Code_cc"])
-
-        cc_details_wbs["Compass Code"] = cc_details_wbs["Compass Code"].fillna(
-            cc_details_wbs["G/L Compass Code"]
-        )
-        cc_details_wbs = cc_details_wbs.drop(
-            columns=[
-                "G/L Compass Code",
-                "Profit Center Code_native",
-                "Profit Center Code_cc",
-            ]
-        )
-
-        # Get Compass Code Text
-        cc_details_wbs = cc_details_wbs.merge(
-            compass_codes, how="left", on="Compass Code", validate="many_to_one"
-        )
-        # Get Signature Descriptions
-        cc_details_wbs = cc_details_wbs.merge(
-            profit_centers_to_signatures,
-            how="left",
-            on="Profit Center Code",
-            validate="many_to_one",
-        )
-
-        gold_cc_details = self.determine_fiscal_type(cc_details_wbs)
-
         # ---- Process WBS Committed ----
+        meta_frame_wbs: CommitWBSMetadata = {
+            "wbs_enhanced": wbs_enhanced,
+            "compass_codes": compass_codes,
+            "gl_to_compass": gl_to_compass,
+        }
         commit_wbs: DataFrame = self.conn.execute(
             """
             SELECT * FROM commit_wbs
             """
         ).df()
-        commit_wbs = commit_wbs.rename(columns=self.COLUMN_RENAME)
-        # Find columns that contain the word "date" and format as datetime
-
-        for col in commit_wbs.columns:
-            if "date" in col.lower():
-                commit_wbs[col] = pd.to_datetime(
-                    commit_wbs[col], errors="coerce", format="%m/%d/%Y"
-                )
-
-        commit_wbs["Fiscal Type"] = "WBS"
-        commit_wbs["Profit Center Code"] = pd.NA
-        commit_wbs_enhanced: DataFrame = self.get_wbs_attributes(
-            commit_wbs, wbs_enhanced
-        )
-
-        del commit_wbs
-        gc.collect()
-
-        # Get Compass Codes using G/L Account
-        commit_wbs_enhanced = commit_wbs_enhanced.merge(
-            gl_to_compass, on="G/L Account", how="left", validate="many_to_one"
-        )
-
-        # Get Compass Text
-        commit_wbs_enhanced = commit_wbs_enhanced.merge(
-            compass_codes, on="Compass Code", how="left", validate="many_to_one"
+        gold_commit_wbs: DataFrame = self.make_gold_commit_wbs(
+            commit_wbs, meta_frame_wbs
         )
 
         # ---- Process Cost Center Committed ----
+        meta_frame_cc: CommitCostCenterMetadat = {
+            "gl_to_compass": gl_to_compass,
+            "cost_center_to_compass": cost_center_to_compass,
+            "compass_codes": compass_codes,
+        }
         commit_cc: DataFrame = self.conn.execute(
             """
             SELECT * FROM commit_cc
             """
         ).df()
-        commit_cc = commit_cc.rename(columns=self.COLUMN_RENAME)
+        gold_commit_cc: DataFrame = self.make_gold_commit_cc(commit_cc, meta_frame_cc)
 
-        for col in commit_cc.columns:
-            if "date" in col.lower():
-                commit_cc[col] = pd.to_datetime(
-                    commit_cc[col], errors="coerce", format="%m/%d/%Y"
-                )
-
-        commit_cc["Fiscal Type"] = "COST CENTER"
-        commit_cc = commit_cc.merge(
-            gl_to_compass, how="left", on="G/L Account", validate="many_to_one"
-        )
-        commit_cc = commit_cc.rename(columns={"Compass Code": "G/L Compass Code"})
-
-        # Get Compass Codes using Cost Center
-        commit_cc = commit_cc.merge(
-            cost_center_to_compass,
-            on="Cost Center Code",
-            how="left",
-            validate="many_to_one",
-        )
-        commit_cc["Compass Code"] = commit_cc["Compass Code"].fillna(
-            commit_cc["G/L Compass Code"]
-        )
-        commit_cc = commit_cc.drop(columns=["G/L Compass Code"])
-
-        # Get Compass Text
-        commit_cc = commit_cc.merge(
-            compass_codes,
-            how="left",
-            on="Compass Code",
-            validate="many_to_one",
-        )
-
+        # ---- Final Processing for Committed ----
         gold_committed: DataFrame = pd.concat(
-            [commit_wbs_enhanced, commit_cc], ignore_index=True
+            [gold_commit_wbs, gold_commit_cc], ignore_index=True
         )
-
-        del commit_wbs_enhanced
+        del commit_wbs
         del commit_cc
+        del gold_commit_wbs
+        del gold_commit_cc
         gc.collect()
 
         # Get Signature Codes using Profit Center Codes

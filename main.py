@@ -87,7 +87,7 @@ def main(argv=None) -> None:
     if args.command == "metadata":
         database_path = Path(str(args.database_path))
         conn = duckdb.connect(database=database_path)
-        print(f"Connected to database at {args.database_path}")
+        print("Connected to database...")
         metadata_path = Path(str(args.metadata_path))
 
         if metadata_path.exists() and metadata_path.is_dir():
@@ -106,7 +106,7 @@ def main(argv=None) -> None:
     elif args.command == "import":
         database_path = Path(str(args.database_path))
         conn = duckdb.connect(database=database_path)
-        print(f"Connected to database...")
+        print("Connected to database...")
         pipeline = FinancePipeline(conn)
 
         data_files: list[Path] = []
@@ -139,7 +139,7 @@ def main(argv=None) -> None:
     elif args.command == "transform":
         database_path = Path(str(args.database_path))
         conn = duckdb.connect(database=str(database_path))
-        print(f"Connected to database at {database_path}")
+        print("Connected to database...")
         pipeline = FinancePipeline(conn)
         tic = time.perf_counter()
         print("Starting transformations...")
