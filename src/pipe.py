@@ -978,18 +978,32 @@ class FinancePipeline:
                 * EXCLUDE ("PartitionDate"),
                 CAST(PartitionDate AS TIMESTAMP) AS PartitionDate
             FROM
-                gold_df_view
+                (SELECT 
+                    *
+                 FROM 
+                    gold_df_view 
+                WHERE 
+                    "Month" != 0)
         ) TO '{output_path}' (FORMAT PARQUET, PARTITION_BY ("Year", "Month"), OVERWRITE_OR_IGNORE 1)
             """
         )
         self.conn.execute(
             """
             CREATE OR REPLACE TABLE gold_dataset AS
-            (SELECT
-                * EXCLUDE ("PartitionDate"),
-                CAST(PartitionDate AS TIMESTAMP) AS PartitionDate
-            FROM
-                gold_df_view)
+            (
+                SELECT
+                    * EXCLUDE ("PartitionDate"),
+                    CAST(PartitionDate AS TIMESTAMP) AS PartitionDate
+                FROM
+                    (
+                        SELECT 
+                            * 
+                        FROM 
+                            gold_df_view
+                        WHERE
+                            "Month" !=0
+                    )
+            )
             """
         )
         self.conn.unregister("gold_df_view")
