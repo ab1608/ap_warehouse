@@ -29,12 +29,14 @@ class CommitWBSMetadata(TypedDict):
     wbs_enhanced: DataFrame
     gl_to_compass: DataFrame
     compass_codes: DataFrame
+    profit_centers_to_signatures: DataFrame
 
 
 class CommitCostCenterMetadat(TypedDict):
     gl_to_compass: DataFrame
     cost_center_to_compass: DataFrame
     compass_codes: DataFrame
+    profit_centers_to_signatures: DataFrame
 
 
 class FinancePipeline:
@@ -397,20 +399,6 @@ class FinancePipeline:
     def make_gold_actuals(
         self, actuals: DataFrame, meta_frames: ActualsMetadata
     ) -> DataFrame:
-        # Define required keys
-        required_keys = {
-            "wbs_enhanced",
-            "gl_to_compass",
-            "cost_center_to_compass",
-            "compass_codes",
-            "profit_centers_to_signatures",
-        }
-
-        # Check for missing keys
-        missing = required_keys - set(meta_frames.keys())
-        if missing:
-            raise ValueError(f"Missing required meta_frames: {', '.join(missing)}")
-
         actuals = actuals.rename(columns=self.SAP_COLUMN_RENAME)
         actuals["Amount in Company Code Currency"] *= -1
         actuals["Scenario"] = "Actuals"
@@ -471,9 +459,6 @@ class FinancePipeline:
         # Split actuals into "non-M" WBS Element Codes and "M" WBS Element Codes
         actuals_non_m = actuals_wbs.loc[actuals_wbs["WBS Type Char"] != "M"].copy()
         actuals_m = actuals_wbs.loc[actuals_wbs["WBS Type Char"] == "M"].copy()
-
-        del actuals_wbs
-        gc.collect()
 
         # Fiscal Type for "non-M" follows normal logic
         gold_actuals_non_m: DataFrame = self.determine_fiscal_type(actuals_non_m)
@@ -575,14 +560,17 @@ class FinancePipeline:
             commit_wbs, meta_frame["wbs_enhanced"]
         )
 
-        del commit_wbs
-        gc.collect()
-
         # Get Compass Codes using G/L Account
         commit_wbs_enhanced = commit_wbs_enhanced.merge(
             meta_frame["gl_to_compass"],
             on="G/L Account",
             how="left",
+            validate="many_to_one",
+        )
+        commit_wbs_enhanced = commit_wbs_enhanced.merge(
+            meta_frame["profit_centers_to_signatures"],
+            how="left",
+            on="Profit Center Code",
             validate="many_to_one",
         )
 
@@ -625,6 +613,12 @@ class FinancePipeline:
             commit_cc["G/L Compass Code"]
         )
         commit_cc = commit_cc.drop(columns=["G/L Compass Code"])
+        commit_cc = commit_cc.merge(
+            meta_frame["profit_centers_to_signatures"],
+            how="left",
+            on="Profit Center Code",
+            validate="many_to_one",
+        )
 
         # Get Compass Text
         return commit_cc.merge(
@@ -634,7 +628,71 @@ class FinancePipeline:
             validate="many_to_one",
         )
 
-    def run_transformation(self, output_path: Path) -> None:
+    def make_gold_forecast(self, forecast: DataFrame, meta_frames) -> DataFrame:
+        forecast = forecast.rename(columns=self.FORECAST_COLUMN_RENAME)
+
+        forecast["Amount in Company Code Currency"] *= -1
+
+        # PERIODs in forecasted are formatted as "M04_T", "M10_B", etc.
+        # so let's extract the numerical portion only
+        forecast["Code 1 Concatenated"] = (
+            forecast["Code 1"] + forecast["Code 1 Description"]
+        )
+        forecast["Code 2 Concatenated"] = (
+            forecast["Code 2"] + forecast["Code 2 Description"]
+        )
+
+        # Code 1 and Code 2 contain Cost Center Codes and WBS Element Codes, respectively
+        gold_forecast = forecast.merge(
+            meta_frames["cost_center_to_compass"],
+            how="left",
+            left_on="Code 1",
+            right_on="Cost Center Code",
+            validate="many_to_one",
+            suffixes=("_native", "_cc"),
+        )
+
+        del forecast
+        gc.collect()
+
+        gold_forecast = gold_forecast.merge(
+            meta_frames["wbs_enhanced"],
+            how="left",
+            left_on="Code 2",
+            right_on="WBS Element Code",
+            validate="many_to_one",
+            suffixes=("_native", "_wbs"),
+        )
+
+        gold_forecast["G/L Account"] = gold_forecast["G/L Account"].fillna(
+            gold_forecast["WBS G/L Account"]
+        )
+
+        # Fill Profit Center Code given by CC with WBS
+        gold_forecast["Profit Center Code"] = (
+            gold_forecast["Profit Center Code"]
+            .fillna(gold_forecast["WBS Profit Center Code"])
+            .astype(StringDtype())
+        )
+
+        # Fill Compass Code found in original dataset with that obtained from CC
+        gold_forecast["Compass Code"] = (
+            gold_forecast["Compass Code_native"]
+            .fillna(gold_forecast["Compass Code_cc"])
+            .astype(StringDtype())
+        )
+
+        return gold_forecast.drop(
+            columns=[
+                "Compass Code_native",
+                "Compass Code_cc",
+                "WBS G/L Account",
+            ]
+        )
+
+    def run_transformation(
+        self, output_path: Path, range_start: str, range_end: str
+    ) -> None:
         """Run transformation on data found in the database.
 
         Args:
@@ -643,7 +701,7 @@ class FinancePipeline:
         Returns:
             None
         """
-
+        print(f"Transforming data from {range_start}-{range_end}")
         # 1. Instantiate metadata and enhance where necessary
         compass_codes: DataFrame = self.conn.execute(
             """
@@ -756,6 +814,8 @@ class FinancePipeline:
             gl_accounts, gl_accounts_to_compass
         )
 
+        gold_frames: list[DataFrame] = []
+
         # Business Logic:
         # 1. Records posessing a WBS Element Code should be merged with the WBS Elements metdata
         # to retrieve their Profit Center and G/L Account details from there. These attributes should
@@ -767,80 +827,75 @@ class FinancePipeline:
         actuals: DataFrame = self.conn.execute(
             """
             SELECT * FROM actuals
-            """
+            WHERE 
+                "PartitionDate" >= ?
+                AND "PartitionDate" < ?           
+            """,
+            [range_start, range_end],
         ).df()
-
-        meta_frame: ActualsMetadata = {
-            "compass_codes": compass_codes,
-            "cost_center_to_compass": cost_center_to_compass,
-            "gl_to_compass": gl_to_compass,
-            "profit_centers_to_signatures": profit_centers_to_signatures,
-            "wbs_enhanced": wbs_enhanced,
-        }
-        gold_actuals = self.make_gold_actuals(actuals, meta_frame)
-
-        del actuals
-        gc.collect()
+        if not actuals.empty:
+            actuals_meta_frame: ActualsMetadata = {
+                "compass_codes": compass_codes,
+                "cost_center_to_compass": cost_center_to_compass,
+                "gl_to_compass": gl_to_compass,
+                "profit_centers_to_signatures": profit_centers_to_signatures,
+                "wbs_enhanced": wbs_enhanced,
+            }
+            gold_frames.append(self.make_gold_actuals(actuals, actuals_meta_frame))
 
         # ---- Process Cost Center Details ----
         cc_details: DataFrame = self.conn.execute(
             """
             SELECT * FROM cost_center_details
-            """
+            WHERE 
+                "PartitionDate" >= ?
+                AND "PartitionDate" < ?
+            """,
+            [range_start, range_end],
         ).df()
-        gold_cc_details = self.make_gold_cc_details(
-            cc_details, CostCenterMetadata(meta_frame)
-        )
-
-        del cc_details
-        gc.collect()
+        if not cc_details.empty:
+            cc_meta_frame: CostCenterMetadata = {
+                "compass_codes": compass_codes,
+                "cost_center_to_compass": cost_center_to_compass,
+                "gl_to_compass": gl_to_compass,
+                "profit_centers_to_signatures": profit_centers_to_signatures,
+                "wbs_enhanced": wbs_enhanced,
+            }
+            gold_frames.append(self.make_gold_cc_details(cc_details, cc_meta_frame))
 
         # ---- Process WBS Committed ----
         meta_frame_wbs: CommitWBSMetadata = {
             "wbs_enhanced": wbs_enhanced,
             "compass_codes": compass_codes,
             "gl_to_compass": gl_to_compass,
+            "profit_centers_to_signatures": profit_centers_to_signatures,
         }
         commit_wbs: DataFrame = self.conn.execute(
             """
-            SELECT * FROM commit_wbs
+            SELECT 
+                *,
+                'Committed' AS "Scenario"
+            FROM commit_wbs
             """
         ).df()
-        gold_commit_wbs: DataFrame = self.make_gold_commit_wbs(
-            commit_wbs, meta_frame_wbs
-        )
+        gold_frames.append(self.make_gold_commit_wbs(commit_wbs, meta_frame_wbs))
 
         # ---- Process Cost Center Committed ----
         meta_frame_cc: CommitCostCenterMetadat = {
             "gl_to_compass": gl_to_compass,
             "cost_center_to_compass": cost_center_to_compass,
             "compass_codes": compass_codes,
+            "profit_centers_to_signatures": profit_centers_to_signatures,
         }
         commit_cc: DataFrame = self.conn.execute(
             """
-            SELECT * FROM commit_cc
+            SELECT 
+                *,
+                'Committed' AS "Scenario"
+            FROM commit_cc
             """
         ).df()
-        gold_commit_cc: DataFrame = self.make_gold_commit_cc(commit_cc, meta_frame_cc)
-
-        # ---- Final Processing for Committed ----
-        gold_committed: DataFrame = pd.concat(
-            [gold_commit_wbs, gold_commit_cc], ignore_index=True
-        )
-        del commit_wbs
-        del commit_cc
-        del gold_commit_wbs
-        del gold_commit_cc
-        gc.collect()
-
-        # Get Signature Codes using Profit Center Codes
-        gold_committed = gold_committed.merge(
-            profit_centers_to_signatures,
-            how="left",
-            on="Profit Center Code",
-            validate="many_to_one",
-        )
-        gold_committed["Scenario"] = "Committed"
+        gold_frames.append(self.make_gold_commit_cc(commit_cc, meta_frame_cc))
 
         # ---- Process Forecasted Data ----
         live_estimate = self.conn.execute(
@@ -850,8 +905,12 @@ class FinancePipeline:
                 'Live Estimate' AS "Scenario",
                 "SPEND TYPE" AS 'Fiscal Type'
             FROM forecast_live_estimate
-            WHERE "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
-            """
+            WHERE 
+                "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
+                AND "PartitionDate" >= ?
+                AND "PartitionDate" < ?
+            """,
+            [range_start, range_end],
         ).df()
 
         pre_budget = self.conn.execute(
@@ -861,8 +920,12 @@ class FinancePipeline:
                 'Pre-Budget' AS "Scenario",
                 "SPEND TYPE" AS 'Fiscal Type'
             FROM forecast_pre_budget
-            WHERE "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
-            """
+            WHERE 
+                "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
+                AND "PartitionDate" >= ?
+                AND "PartitionDate" < ?
+            """,
+            [range_start, range_end],
         ).df()
 
         budget = self.conn.execute(
@@ -874,8 +937,11 @@ class FinancePipeline:
             FROM
               forecast_budget
             WHERE
-              "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
-            """
+                "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
+                AND "PartitionDate" >= ?
+                AND "PartitionDate" < ?
+            """,
+            [range_start, range_end],
         ).df()
 
         trend = self.conn.execute(
@@ -892,87 +958,31 @@ class FinancePipeline:
             FROM
               forecast_trend
             WHERE
-              "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
-            """
+                "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
+                AND "PartitionDate" >= ?
+                AND "PartitionDate" < ?
+            """,
+            [range_start, range_end],
         ).df()
 
         forecast = pd.concat(
             [live_estimate, pre_budget, budget, trend], ignore_index=True
         )
-        forecast = forecast.rename(columns=self.FORECAST_COLUMN_RENAME)
-
-        forecast["Amount in Company Code Currency"] *= -1
-
-        # PERIODs in forecasted are formatted as "M04_T", "M10_B", etc.
-        # so let's extract the numerical portion only
-        forecast["Code 1 Concatenated"] = (
-            forecast["Code 1"] + forecast["Code 1 Description"]
-        )
-        forecast["Code 2 Concatenated"] = (
-            forecast["Code 2"] + forecast["Code 2 Description"]
-        )
-
-        # Code 1 and Code 2 contain Cost Center Codes and WBS Element Codes, respectively
-        gold_forecast = forecast.merge(
-            cost_center_to_compass,
-            how="left",
-            left_on="Code 1",
-            right_on="Cost Center Code",
-            validate="many_to_one",
-            suffixes=("_native", "_cc"),
-        )
-
-        gold_forecast = gold_forecast.merge(
-            wbs_enhanced,
-            how="left",
-            left_on="Code 2",
-            right_on="WBS Element Code",
-            validate="many_to_one",
-            suffixes=("_native", "_wbs"),
-        )
-
-        gold_forecast["G/L Account"] = gold_forecast["G/L Account"].fillna(
-            gold_forecast["WBS G/L Account"]
-        )
-
-        # Fill Profit Center Code given by CC with WBS
-        gold_forecast["Profit Center Code"] = (
-            gold_forecast["Profit Center Code"]
-            .fillna(gold_forecast["WBS Profit Center Code"])
-            .astype(StringDtype())
-        )
-        # Fill Compass Code found in original dataset with that obtained from CC
-        gold_forecast["Compass Code"] = (
-            gold_forecast["Compass Code_native"]
-            .fillna(gold_forecast["Compass Code_cc"])
-            .astype(StringDtype())
-        )
-        gold_forecast = gold_forecast.drop(
-            columns=[
-                "Compass Code_native",
-                "Compass Code_cc",
-                "WBS G/L Account",
-            ]
-        )
+        if not forecast.empty:
+            forecast_frames = {
+                "cost_center_to_compass": cost_center_to_compass,
+                "wbs_enhanced": wbs_enhanced,
+            }
+            gold_frames.append(self.make_gold_forecast(forecast, forecast_frames))
 
         # ---- Store transformed data ----
-        gold_dataset = pd.concat(
-            [gold_actuals, gold_cc_details, gold_committed, gold_forecast],
-            ignore_index=True,
-        )
+        gold_dataset = pd.concat(gold_frames, ignore_index=True)
         gold_dataset["Year"] = gold_dataset["Fiscal Year"]
         gold_dataset["Month"] = gold_dataset["Fiscal Period"]
-        gold_dataset.insert(0, "Index", range(1, len(gold_dataset) + 1))
-        gold_dataset["Index"] = gold_dataset["Index"].astype(Int64Dtype())
-
-        del gold_actuals
-        del gold_cc_details
-        del gold_committed
-        gc.collect()
 
         self.conn.register("gold_df_view", gold_dataset)
         self.conn.execute(
-            f"""
+            """
          COPY (
             SELECT
                 * EXCLUDE ("PartitionDate"),
@@ -984,8 +994,9 @@ class FinancePipeline:
                     gold_df_view 
                 WHERE 
                     "Month" != 0)
-        ) TO '{output_path}' (FORMAT PARQUET, PARTITION_BY ("Year", "Month"), OVERWRITE_OR_IGNORE 1)
-            """
+        ) TO ? (FORMAT PARQUET, PARTITION_BY ("Year", "Month"), OVERWRITE_OR_IGNORE 1)
+            """,
+            [str(output_path)],
         )
         self.conn.execute(
             """
@@ -999,11 +1010,12 @@ class FinancePipeline:
                         SELECT 
                             * 
                         FROM 
-                            gold_df_view
+                            read_parquet(?)
                         WHERE
                             "Month" !=0
                     )
             )
-            """
+            """,
+            [f"{str(output_path)}/**/*.parquet"],
         )
         self.conn.unregister("gold_df_view")

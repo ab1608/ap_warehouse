@@ -81,6 +81,20 @@ def main(argv=None) -> None:
         default=output_default,
         help="Path in which transformed data will be stored. If not provided, uses OUTPUT_PATH from .env file.",
     )
+    transform_parser.add_argument(
+        "--range-start",
+        type=str,
+        help="""
+        The initial date (inclusive) that defines the data range that should be transformed. 
+        Must be in the form of YYYY/MM/DD""",
+    )
+    transform_parser.add_argument(
+        "--range-end",
+        type=str,
+        help="""
+        The end date (inclusive) that defines the data range that should be transformed. 
+        Must be in the form of YYYY/MM/DD""",
+    )
 
     args = parser.parse_args(argv)
 
@@ -143,7 +157,9 @@ def main(argv=None) -> None:
         pipeline = FinancePipeline(conn)
         tic = time.perf_counter()
         print("Starting transformations...")
-        pipeline.run_transformation(Path(str(args.output_path)))
+        pipeline.run_transformation(
+            Path(str(args.output_path)), args.range_start, args.range_end
+        )
         toc = time.perf_counter()
         print(
             f"Transformation took {toc - tic:0.2f} seconds. Closing database and exiting program."
