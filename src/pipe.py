@@ -401,7 +401,7 @@ class FinancePipeline:
     ) -> DataFrame:
         actuals = actuals.rename(columns=self.SAP_COLUMN_RENAME)
         actuals["Amount in Company Code Currency"] *= -1
-        actuals["Scenario"] = "Actuals"
+        actuals["Scenario"] = "Actual"
         actuals_wbs: DataFrame = self.get_wbs_attributes(
             actuals, meta_frames["wbs_enhanced"]
         )
@@ -691,12 +691,12 @@ class FinancePipeline:
         )
 
     def run_transformation(
-        self, output_path: Path, range_start: str, range_end: str
+        self, output_path: str, range_start: str, range_end: str
     ) -> None:
         """Run transformation on data found in the database.
 
         Args:
-            output_path (Path): Path to the output directory.
+            output_path (str): Path to the output directory.
 
         Returns:
             None
@@ -983,18 +983,18 @@ class FinancePipeline:
         self.conn.register("gold_df_view", gold_dataset)
         self.conn.execute(
             """
-         COPY (
-            SELECT
-                * EXCLUDE ("PartitionDate"),
-                CAST(PartitionDate AS TIMESTAMP) AS PartitionDate
-            FROM
-                (SELECT 
-                    *
-                 FROM 
-                    gold_df_view 
-                WHERE 
-                    "Month" != 0)
-        ) TO ? (FORMAT PARQUET, PARTITION_BY ("Year", "Month"), OVERWRITE_OR_IGNORE 1)
+            COPY (
+                SELECT
+                    * EXCLUDE ("PartitionDate"),
+                    CAST(PartitionDate AS TIMESTAMP) AS PartitionDate
+                FROM
+                    (SELECT 
+                        *
+                    FROM 
+                        gold_df_view 
+                    WHERE 
+                        "Month" != 0)
+            ) TO ? (FORMAT PARQUET, PARTITION_BY ("Year", "Month"), OVERWRITE_OR_IGNORE 1)
             """,
             [str(output_path)],
         )
@@ -1010,7 +1010,7 @@ class FinancePipeline:
                         SELECT 
                             * 
                         FROM 
-                            read_parquet(?)
+                            read_parquet(?, union_by_name=true)
                         WHERE
                             "Month" !=0
                     )

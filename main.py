@@ -65,7 +65,7 @@ def main(argv=None) -> None:
     )
     metadata_parser.add_argument(
         "--metadata-path",
-        type=Path,
+        type=str,
         nargs="?" if metadata_default else None,
         default=metadata_default,
         help="Path to the metadata file describing the data schema. If not provided, uses METADATA_PATH from .env file.",
@@ -76,7 +76,7 @@ def main(argv=None) -> None:
     )
     transform_parser.add_argument(
         "--output-path",
-        type=Path,
+        type=str,
         nargs="?" if output_default else None,
         default=output_default,
         help="Path in which transformed data will be stored. If not provided, uses OUTPUT_PATH from .env file.",
@@ -139,11 +139,15 @@ def main(argv=None) -> None:
                 )
 
         if data_files:
+            tic = time.perf_counter()
             print(
                 f"Found {len(data_files)} data files to import. Determining how many are new..."
             )
             pipeline.run_import(data_files)
-            print("Data import complete. Closing database and exiting program.")
+            toc = time.perf_counter()
+            print(
+                f"Ingestion took {toc - tic:0.2f} seconds. Closing database and exiting program."
+            )
         else:
             print("No data files found to process. Exiting program.")
 
@@ -158,7 +162,7 @@ def main(argv=None) -> None:
         tic = time.perf_counter()
         print("Starting transformations...")
         pipeline.run_transformation(
-            Path(str(args.output_path)), args.range_start, args.range_end
+            str(args.output_path), args.range_start, args.range_end
         )
         toc = time.perf_counter()
         print(
