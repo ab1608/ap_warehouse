@@ -6,7 +6,14 @@ from typing import TypedDict
 import numpy as np
 import pandas as pd
 from duckdb import DuckDBPyConnection
-from pandas import DataFrame, Float64Dtype, Int64Dtype, StringDtype
+from pandas import (
+    DataFrame,
+    Float64Dtype,
+    Int8Dtype,
+    Int16Dtype,
+    Int64Dtype,
+    StringDtype,
+)
 
 
 class ActualsMetadata(TypedDict):
@@ -979,21 +986,117 @@ class FinancePipeline:
         gold_dataset = pd.concat(gold_frames, ignore_index=True)
         gold_dataset["Year"] = gold_dataset["Fiscal Year"]
         gold_dataset["Month"] = gold_dataset["Fiscal Period"]
+        final_dtypes = {
+            "PartitionDate": "datetime64[ms]",
+            "Debit Date": "datetime64[ms]",
+            "Reference date": "datetime64[ms]",
+            "Document Date": "datetime64[ms]",
+            "Total Quantity": Float64Dtype(),
+            "Quantity/Plan": Float64Dtype(),
+            "Value TranCurr": Float64Dtype(),
+            "Val/COArea Crcy": Float64Dtype(),
+            "Reference Item": Float64Dtype(),
+            "Val.in rep.cur.": Float64Dtype(),
+            "Native G/L Account": Int64Dtype(),
+            "G/L Account": Int64Dtype(),
+            "WBS Level": Int8Dtype(),
+            "Fiscal Year": Int16Dtype(),
+            "Fiscal Period": Int8Dtype(),
+            "Distribution Channel": Int8Dtype(),
+            "Year": Int16Dtype(),
+            "Month": Int8Dtype(),
+            "Company Code": StringDtype(),
+            "Company Code Name": StringDtype(),
+            "Ledger": StringDtype(),
+            "Ledger Name": StringDtype(),
+            "Profit Center Name": StringDtype(),
+            "G/L Account Name": StringDtype(),
+            "G/L Account Type": StringDtype(),
+            "Journal Entry Type": StringDtype(),
+            "JE Type Name": StringDtype(),
+            "Journal Entry Item Text": StringDtype(),
+            "Amount in Company Code Currency": StringDtype(),
+            "Company Code Currency": StringDtype(),
+            "Purchasing Document": StringDtype(),
+            "Purchasing Doc. Item": StringDtype(),
+            "Partner Cost Center Code": StringDtype(),
+            "Cost Center Code": StringDtype(),
+            "Cost Center Name": StringDtype(),
+            "Project Code": StringDtype(),
+            "Project Name": StringDtype(),
+            "WBS Element Code": StringDtype(),
+            "Product Code": StringDtype(),
+            "Product Name": StringDtype(),
+            "source_file": StringDtype(),
+            "Scenario": StringDtype(),
+            "WBS Element Name": StringDtype(),
+            "WBS Parent Code": StringDtype(),
+            "WBS Parent Name": StringDtype(),
+            "WBS Type Char": StringDtype(),
+            "WBS Type": StringDtype(),
+            "WBS Typ Local": StringDtype(),
+            "G/L Acct Long Text": StringDtype(),
+            "Compass Code": StringDtype(),
+            "P&L Line Text": StringDtype(),
+            "Profit Center Code": StringDtype(),
+            "Division Abbreviation": StringDtype(),
+            "Division": StringDtype(),
+            "Standard Hierarchy Node": StringDtype(),
+            "Signature Code": StringDtype(),
+            "Signature Description": StringDtype(),
+            "Fiscal Type": StringDtype(),
+            "Project definition": StringDtype(),
+            "Reference Document Category": StringDtype(),
+            "Object Type": StringDtype(),
+            "Object": StringDtype(),
+            "CO Object Name": StringDtype(),
+            "Cost element descr.": StringDtype(),
+            "Object Currency": StringDtype(),
+            "Unit of Measure": StringDtype(),
+            "User Name": StringDtype(),
+            "Supplier": StringDtype(),
+            "Ref. document number": StringDtype(),
+            "Reference Doc. Type": StringDtype(),
+            "Name": StringDtype(),
+            "Business Transaction": StringDtype(),
+            "Code 1": StringDtype(),
+            "Code 1 Description": StringDtype(),
+            "Spend Type": StringDtype(),
+            "Code 2": StringDtype(),
+            "Code 2 Description": StringDtype(),
+            "Budget Owner": StringDtype(),
+            "P&L LINE COMPASS DESCRIPTION_FS": StringDtype(),
+            "Brand": StringDtype(),
+            "Sub Brand": StringDtype(),
+            "Axe": StringDtype(),
+            "Sub-Axe": StringDtype(),
+            "REFERENCE": StringDtype(),
+            "CUSTOMER CU CODE": StringDtype(),
+            "CUSTOMER CC LABEL": StringDtype(),
+            "BUD NATURE": StringDtype(),
+            "BU PARTNER": StringDtype(),
+            "PERIOD": StringDtype(),
+            "Last Refresh": StringDtype(),
+            "Detailed Type": StringDtype(),
+            "P&L Line Check": StringDtype(),
+            "Adj NEO Semantic Tag to Active Compass Code": StringDtype(),
+            "Code 1 Concatenated": StringDtype(),
+            "Code 2 Concatenated": StringDtype(),
+            "WBS Profit Center Code": StringDtype(),
+        }
 
-        self.conn.register("gold_df_view", gold_dataset)
+        self.conn.register(
+            "gold_df_view", gold_dataset.astype(final_dtypes, copy=False)
+        )
         self.conn.execute(
             """
             COPY (
-                SELECT
-                    * EXCLUDE ("PartitionDate"),
-                    CAST(PartitionDate AS TIMESTAMP) AS PartitionDate
-                FROM
-                    (SELECT 
-                        *
-                    FROM 
-                        gold_df_view 
-                    WHERE 
-                        "Month" != 0)
+                SELECT 
+                    *
+                FROM 
+                    gold_df_view 
+                WHERE 
+                    "Month" != 0
             ) TO ? (FORMAT PARQUET, PARTITION_BY ("Year", "Month"), OVERWRITE_OR_IGNORE 1)
             """,
             [str(output_path)],
@@ -1002,18 +1105,12 @@ class FinancePipeline:
             """
             CREATE OR REPLACE TABLE gold_dataset AS
             (
-                SELECT
-                    * EXCLUDE ("PartitionDate"),
-                    CAST(PartitionDate AS TIMESTAMP) AS PartitionDate
-                FROM
-                    (
-                        SELECT 
-                            * 
-                        FROM 
-                            read_parquet(?, union_by_name=true)
-                        WHERE
-                            "Month" !=0
-                    )
+                SELECT 
+                    * 
+                FROM 
+                    read_parquet(?, union_by_name=true)
+                WHERE
+                    "Month" !=0
             )
             """,
             [f"{str(output_path)}/**/*.parquet"],
