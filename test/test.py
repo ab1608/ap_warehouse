@@ -17,11 +17,14 @@ from src.utils import list_files_by_extension
 
 db_conn = duckdb.connect(str(database_path))
 pipeline = FinancePipeline(db_conn)
-source_path = Path(".")
+source_path = Path()
 data_files = list_files_by_extension(source_path, extension="csv")
 pipeline.run_import(data_files=data_files)
-pipeline.run_transformation(
-    str(output_path), range_start="2025/01/01", range_end="2025/02/01"
+pipeline.run_pipeline(
+    fiscal_type="actual",
+    range_start="2025/01/01",
+    range_end="2025/02/01",
+    output_path=str(output_path),
 )
 
 db_conn.close()
