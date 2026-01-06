@@ -47,7 +47,7 @@ class CommitCostCenterMetadat(TypedDict):
 
 
 class FinancePipeline:
-    RAW_DATA_TYPES = defaultdict(
+    RAW_DATA_SCHEMA = defaultdict(
         StringDtype,
         {
             "Accounting doc type": StringDtype(),
@@ -111,7 +111,6 @@ class FinancePipeline:
             "P&L DESTINATION ACCOUNT": Int64Dtype(),
         },
     )
-
     SAP_COLUMN_RENAME = {
         "Cost Center": "Cost Center Code",
         "Cost element": "G/L Account",
@@ -129,7 +128,6 @@ class FinancePipeline:
         "WBS Element External ID": "WBS Element Code",
         "WBS element": "WBS Element Code",
     }
-
     FORECAST_COLUMN_RENAME = {
         "AXE": "Axe",
         "BRAND": "Brand",
@@ -150,23 +148,335 @@ class FinancePipeline:
         "PRODUCT CODE": "Product Code",
         "SPEND TYPE": "Spend Type",
     }
+    GOLD_FINANCE_SCHEMA = {
+        "PartitionDate": "datetime64[ms]",
+        "Debit Date": "datetime64[ms]",
+        "Reference date": "datetime64[ms]",
+        "Document Date": "datetime64[ms]",
+        "Total Quantity": Float64Dtype(),
+        "Quantity/Plan": Float64Dtype(),
+        "Value TranCurr": Float64Dtype(),
+        "Val/COArea Crcy": Float64Dtype(),
+        "Reference Item": Float64Dtype(),
+        "Val.in rep.cur.": Float64Dtype(),
+        "Native G/L Account": Int64Dtype(),
+        "G/L Account": Int64Dtype(),
+        "WBS Level": Int8Dtype(),
+        "Fiscal Year": Int16Dtype(),
+        "Fiscal Period": Int8Dtype(),
+        "Distribution Channel": Int8Dtype(),
+        "Year": Int16Dtype(),
+        "Month": Int8Dtype(),
+        "Company Code": StringDtype(),
+        "Company Code Name": StringDtype(),
+        "Ledger": StringDtype(),
+        "Ledger Name": StringDtype(),
+        "Profit Center Name": StringDtype(),
+        "G/L Account Name": StringDtype(),
+        "G/L Account Type": StringDtype(),
+        "Journal Entry Type": StringDtype(),
+        "JE Type Name": StringDtype(),
+        "Journal Entry Item Text": StringDtype(),
+        "Amount in Company Code Currency": StringDtype(),
+        "Company Code Currency": StringDtype(),
+        "Purchasing Document": StringDtype(),
+        "Purchasing Doc. Item": StringDtype(),
+        "Partner Cost Center Code": StringDtype(),
+        "Cost Center Code": StringDtype(),
+        "Cost Center Name": StringDtype(),
+        "Project Code": StringDtype(),
+        "Project Name": StringDtype(),
+        "WBS Element Code": StringDtype(),
+        "Product Code": StringDtype(),
+        "Product Name": StringDtype(),
+        "source_file": StringDtype(),
+        "Scenario": StringDtype(),
+        "WBS Element Name": StringDtype(),
+        "WBS Parent Code": StringDtype(),
+        "WBS Parent Name": StringDtype(),
+        "WBS Type Char": StringDtype(),
+        "WBS Type": StringDtype(),
+        "WBS Typ Local": StringDtype(),
+        "G/L Acct Long Text": StringDtype(),
+        "Compass Code": StringDtype(),
+        "P&L Line Text": StringDtype(),
+        "Profit Center Code": StringDtype(),
+        "Division Abbreviation": StringDtype(),
+        "Division": StringDtype(),
+        "Standard Hierarchy Node": StringDtype(),
+        "Signature Code": StringDtype(),
+        "Signature Description": StringDtype(),
+        "Fiscal Type": StringDtype(),
+        "Project definition": StringDtype(),
+        "Reference Document Category": StringDtype(),
+        "Object Type": StringDtype(),
+        "Object": StringDtype(),
+        "CO Object Name": StringDtype(),
+        "Cost element descr.": StringDtype(),
+        "Object Currency": StringDtype(),
+        "Unit of Measure": StringDtype(),
+        "User Name": StringDtype(),
+        "Supplier": StringDtype(),
+        "Ref. document number": StringDtype(),
+        "Reference Doc. Type": StringDtype(),
+        "Name": StringDtype(),
+        "Business Transaction": StringDtype(),
+        "Code 1": StringDtype(),
+        "Code 1 Description": StringDtype(),
+        "Spend Type": StringDtype(),
+        "Code 2": StringDtype(),
+        "Code 2 Description": StringDtype(),
+        "Budget Owner": StringDtype(),
+        "P&L LINE COMPASS DESCRIPTION_FS": StringDtype(),
+        "Brand": StringDtype(),
+        "Sub Brand": StringDtype(),
+        "Axe": StringDtype(),
+        "Sub-Axe": StringDtype(),
+        "REFERENCE": StringDtype(),
+        "CUSTOMER CU CODE": StringDtype(),
+        "CUSTOMER CC LABEL": StringDtype(),
+        "BUD NATURE": StringDtype(),
+        "BU PARTNER": StringDtype(),
+        "PERIOD": StringDtype(),
+        "Last Refresh": StringDtype(),
+        "Detailed Type": StringDtype(),
+        "P&L Line Check": StringDtype(),
+        "Adj NEO Semantic Tag to Active Compass Code": StringDtype(),
+        "Code 1 Concatenated": StringDtype(),
+        "Code 2 Concatenated": StringDtype(),
+        "WBS Profit Center Code": StringDtype(),
+    }
+    GOLD_ACTUALS_SCHEMA = {
+        "Company Code": StringDtype(),
+        "Company Code Name": StringDtype(),
+        "Fiscal Year": Int16Dtype(),
+        "Fiscal Period": Int8Dtype(),
+        "Ledger": StringDtype(),
+        "Ledger Name": StringDtype(),
+        "Profit Center Name": StringDtype(),
+        "Distribution Channel": Int8Dtype(),
+        "G/L Account": Int64Dtype(),
+        "G/L Account Name": StringDtype(),
+        "G/L Account Type": StringDtype(),
+        "Journal Entry Type": StringDtype(),
+        "JE Type Name": StringDtype(),
+        "Journal Entry Item Text": StringDtype(),
+        "Amount in Company Code Currency": StringDtype(),
+        "Company Code Currency": StringDtype(),
+        "Purchasing Document": StringDtype(),
+        "Purchasing Doc. Item": StringDtype(),
+        "Partner Cost Center Code": StringDtype(),
+        "Cost Center Code": StringDtype(),
+        "Cost Center Name": StringDtype(),
+        "Project Code": StringDtype(),
+        "Project Name": StringDtype(),
+        "WBS Element Code": StringDtype(),
+        "Product Code": StringDtype(),
+        "Product Name": StringDtype(),
+        "source_file": StringDtype(),
+        "PartitionDate": "datetime64[ms]",
+        "Scenario": StringDtype(),
+        "WBS Element Name": StringDtype(),
+        "WBS Level": Int8Dtype(),
+        "WBS Parent Code": StringDtype(),
+        "WBS Parent Name": StringDtype(),
+        "WBS Type Char": StringDtype(),
+        "WBS Type": StringDtype(),
+        "WBS Typ Local": StringDtype(),
+        "Native G/L Account": Int64Dtype(),
+        "G/L Acct Long Text": StringDtype(),
+        "Compass Code": StringDtype(),
+        "P&L Line Text": StringDtype(),
+        "Profit Center Code": StringDtype(),
+        "Division Abbreviation": StringDtype(),
+        "Division": StringDtype(),
+        "Standard Hierarchy Node": StringDtype(),
+        "Signature Code": StringDtype(),
+        "Signature Description": StringDtype(),
+        "Fiscal Type": StringDtype(),
+    }
+    GOLD_COST_CENTER_DETAILS_SCHEMA = {
+        "Company Code": StringDtype(),
+        "Company Code Name": StringDtype(),
+        "Fiscal Year": Int16Dtype(),
+        "Fiscal Period": Int8Dtype(),
+        "Ledger": StringDtype(),
+        "Ledger Name": StringDtype(),
+        "Profit Center Name": StringDtype(),
+        "Distribution Channel": Int8Dtype(),
+        "G/L Account": Int64Dtype(),
+        "G/L Account Name": StringDtype(),
+        "G/L Account Type": StringDtype(),
+        "Journal Entry Type": StringDtype(),
+        "JE Type Name": StringDtype(),
+        "Journal Entry Item Text": StringDtype(),
+        "Amount in Company Code Currency": StringDtype(),
+        "Company Code Currency": StringDtype(),
+        "Purchasing Document": StringDtype(),
+        "Purchasing Doc. Item": StringDtype(),
+        "Partner Cost Center Code": StringDtype(),
+        "Cost Center Code": StringDtype(),
+        "Cost Center Name": StringDtype(),
+        "Project Code": StringDtype(),
+        "Project Name": StringDtype(),
+        "WBS Element Code": StringDtype(),
+        "Product Code": StringDtype(),
+        "Product Name": StringDtype(),
+        "source_file": StringDtype(),
+        "PartitionDate": "datetime64[ms]",
+        "Scenario": StringDtype(),
+        "WBS Element Name": StringDtype(),
+        "WBS Level": Int8Dtype(),
+        "WBS Parent Code": StringDtype(),
+        "WBS Parent Name": StringDtype(),
+        "WBS Type Char": StringDtype(),
+        "WBS Type": StringDtype(),
+        "WBS Typ Local": StringDtype(),
+        "Native G/L Account": Int64Dtype(),
+        "G/L Acct Long Text": StringDtype(),
+        "Compass Code": StringDtype(),
+        "Profit Center Code": StringDtype(),
+        "P&L Line Text": StringDtype(),
+        "Division Abbreviation": StringDtype(),
+        "Division": StringDtype(),
+        "Standard Hierarchy Node": StringDtype(),
+        "Signature Code": StringDtype(),
+        "Signature Description": StringDtype(),
+        "Fiscal Type": StringDtype(),
+    }
+    GOLD_FORECAST_SCHEMA = {
+        "Code 1": StringDtype(),
+        "Code 1 Description": StringDtype(),
+        "Spend Type": StringDtype(),
+        "Code 2": StringDtype(),
+        "Code 2 Description": StringDtype(),
+        "Budget Owner": StringDtype(),
+        "G/L Account": Int64Dtype(),
+        "P&L LINE COMPASS DESCRIPTION_FS": StringDtype(),
+        "Brand": StringDtype(),
+        "Sub Brand": StringDtype(),
+        "Axe": StringDtype(),
+        "Sub-Axe": StringDtype(),
+        "REFERENCE": StringDtype(),
+        "Product Code": StringDtype(),
+        "CUSTOMER CU CODE": StringDtype(),
+        "CUSTOMER CC LABEL": StringDtype(),
+        "BUD NATURE": StringDtype(),
+        "BU PARTNER": StringDtype(),
+        "Name": StringDtype(),
+        "PERIOD": StringDtype(),
+        "Amount in Company Code Currency": StringDtype(),
+        "Last Refresh": StringDtype(),
+        "Detailed Type": StringDtype(),
+        "Fiscal Year": Int16Dtype(),
+        "Company Code": StringDtype(),
+        "Signature Code": StringDtype(),
+        "P&L Line Check": StringDtype(),
+        "Adj NEO Semantic Tag to Active Compass Code": StringDtype(),
+        "source_file": StringDtype(),
+        "Fiscal Period": Int8Dtype(),
+        "PartitionDate": "datetime64[ms]",
+        "Scenario": StringDtype(),
+        "Fiscal Type": StringDtype(),
+        "Code 1 Concatenated": StringDtype(),
+        "Code 2 Concatenated": StringDtype(),
+        "Cost Center Code": StringDtype(),
+        "Profit Center Code": StringDtype(),
+        "WBS Element Code": StringDtype(),
+        "WBS Element Name": StringDtype(),
+        "WBS Level": Int8Dtype(),
+        "WBS Profit Center Code": StringDtype(),
+        "WBS Parent Code": StringDtype(),
+        "WBS Parent Name": StringDtype(),
+        "WBS Type Char": StringDtype(),
+        "WBS Type": StringDtype(),
+        "WBS Typ Local": StringDtype(),
+        "Compass Code": StringDtype(),
+    }
+    GOLD_COMMIT_SCHEMA = {
+        "Company Code": StringDtype(),
+        "Project definition": StringDtype(),
+        "Reference Document Category": StringDtype(),
+        "Debit Date": "datetime64[ms]",
+        "Object Type": StringDtype(),
+        "Object": StringDtype(),
+        "CO Object Name": StringDtype(),
+        "G/L Account": Int64Dtype(),
+        "Cost element descr.": StringDtype(),
+        "Amount in Company Code Currency": StringDtype(),
+        "Total Quantity": Float64Dtype(),
+        "Quantity/Plan": Float64Dtype(),
+        "Object Currency": StringDtype(),
+        "Unit of Measure": StringDtype(),
+        "WBS Element Code": StringDtype(),
+        "Value TranCurr": Float64Dtype(),
+        "Val/COArea Crcy": Float64Dtype(),
+        "User Name": StringDtype(),
+        "Supplier": StringDtype(),
+        "Ref. document number": StringDtype(),
+        "Reference Item": Float64Dtype(),
+        "Reference Doc. Type": StringDtype(),
+        "Reference date": "datetime64[ms]",
+        "Name": StringDtype(),
+        "Fiscal Year": Int16Dtype(),
+        "Fiscal Period": Int8Dtype(),
+        "Document Date": "datetime64[ms]",
+        "Business Transaction": StringDtype(),
+        "source_file": StringDtype(),
+        "PartitionDate": "datetime64[ms]",
+        "Scenario": StringDtype(),
+        "Fiscal Type": StringDtype(),
+        "Profit Center Code": StringDtype(),
+        "WBS Element Name": StringDtype(),
+        "WBS Level": Int8Dtype(),
+        "WBS Parent Code": StringDtype(),
+        "WBS Parent Name": StringDtype(),
+        "WBS Type Char": StringDtype(),
+        "WBS Type": StringDtype(),
+        "WBS Typ Local": StringDtype(),
+        "Native G/L Account": Int64Dtype(),
+        "G/L Acct Long Text": StringDtype(),
+        "Compass Code": StringDtype(),
+        "Division Abbreviation": StringDtype(),
+        "Division": StringDtype(),
+        "Standard Hierarchy Node": StringDtype(),
+        "Signature Code": StringDtype(),
+        "Signature Description": StringDtype(),
+        "P&L Line Text": StringDtype(),
+        "Cost Center Code": StringDtype(),
+        "Val.in rep.cur.": Float64Dtype(),
+    }
 
     def __init__(
         self,
         conn: DuckDBPyConnection,
     ) -> None:
         self.conn = conn
-        self.master_tables: dict[str, list[Path]] = {
-            "actuals": [],
-            "commit_cc": [],
-            "commit_wbs": [],
-            "cost_center_details": [],
-            "wbs_budget": [],
-            "forecast_budget": [],
-            "forecast_live_estimate": [],
-            "forecast_pre_budget": [],
-            "forecast_trend": [],
+        self.raw_tables: dict[str, list[Path]] = {
+            "raw_actuals": [],
+            "raw_commit_cc": [],
+            "raw_commit_wbs": [],
+            "raw_cost_center_details": [],
+            "raw_wbs_budget": [],
+            "raw_forecast_budget": [],
+            "raw_forecast_live_estimate": [],
+            "raw_forecast_pre_budget": [],
+            "raw_forecast_trend": [],
         }
+        self.compass_codes: DataFrame
+        self.cost_centers: DataFrame
+        self.node_to_compass: DataFrame
+        self.fiscal_periods: DataFrame
+        self.gl_accounts: DataFrame
+        self.gl_accounts_to_compass: DataFrame
+        self.profit_centers: DataFrame
+        self.signatures: DataFrame
+        self.wbs_codification: DataFrame
+        self.wbs_elements: DataFrame
+        self.wbs_enhanced: DataFrame
+        self.profit_centers_to_signatures: DataFrame
+        self.cost_centers_to_compass: DataFrame
+        self.gl_to_compass: DataFrame
 
     PROCESSED_LOG_TABLE = "ingested_files"
 
@@ -179,6 +489,74 @@ class FinancePipeline:
             )
         """)
 
+    def create_stage_tables(self) -> None:
+        """Creates empty stage tables."""
+
+        stage_tables = {
+            "stg_actuals": DataFrame(
+                columns=list(self.GOLD_ACTUALS_SCHEMA.keys())
+            ).astype(self.GOLD_ACTUALS_SCHEMA),
+            "stg_cost_center_details": DataFrame(
+                columns=self.GOLD_COST_CENTER_DETAILS_SCHEMA.keys()
+            ).astype(self.GOLD_COST_CENTER_DETAILS_SCHEMA),
+            "stg_forecast": DataFrame(columns=self.GOLD_FORECAST_SCHEMA.keys()).astype(
+                self.GOLD_FORECAST_SCHEMA
+            ),
+            "stg_commit": DataFrame(columns=self.GOLD_COMMIT_SCHEMA.keys()).astype(
+                self.GOLD_COMMIT_SCHEMA
+            ),
+        }
+
+        for table_name, df in stage_tables.items():
+            self.conn.execute(f"""
+                CREATE TABLE IF NOT EXISTS {table_name} AS (SELECT * FROM df WHERE 1=0)
+            """)
+
+    def update_gold_dataset(self, output_path: str) -> None:
+        self.conn.execute(
+            """
+            CREATE OR REPLACE TABLE gold_dataset AS (
+                SELECT
+                    * EXCLUDE ("PartitionDate", "Debit Date", "Reference Date", "Document Date"),
+                    CAST("PartitionDate" AS TIMESTAMP) AS "PartitionDate",
+                    CAST("Debit Date" AS TIMESTAMP) AS "Debit Date",
+                    CAST("Reference Date" AS TIMESTAMP) AS "Reference Date",
+                    CAST("Document Date" AS TIMESTAMP) AS "Document Date",
+                    "Fiscal Period" AS "Month",
+                    "Fiscal Year" AS "Year"
+                FROM
+                    (
+                    SELECT
+                        *
+                    FROM
+                        stg_actuals
+                    UNION ALL
+                    BY NAME
+                    SELECT
+                        *
+                    FROM
+                        stg_commit
+                    UNION ALL
+                    BY NAME
+                    SELECT
+                        *
+                    FROM
+                        stg_cost_center_details
+                    UNION ALL
+                    BY NAME
+                    SELECT
+                        *
+                    FROM
+                        stg_forecast
+                    )
+                );
+            """
+        )
+        self.conn.execute(
+            """COPY gold_dataset TO ? (FORMAT parquet, OVERWRITE_OR_IGNORE TRUE, PARTITION_BY ("Year", "Month"))""",
+            [str(output_path)],
+        )
+
     def get_new_files(self, data_files: list[Path]) -> list[Path]:
         """Filters out files that are already in the database log."""
         processed = self.conn.execute(
@@ -186,6 +564,118 @@ class FinancePipeline:
         ).fetchall()
         processed_set = {row[0] for row in processed}
         return [f for f in data_files if f.name not in processed_set]
+
+    def load_metadata(self) -> None:
+        self.compass_codes = self.conn.execute(
+            """
+            SELECT
+                "Financial Statement Item" AS "Compass Code",
+                "Text" AS "P&L Line Text"
+            FROM meta_fs_items
+            """
+        ).df()
+
+        self.cost_centers = self.conn.execute(
+            """
+            SELECT
+                "Cost Center" AS "Cost Center Code",
+                "Profit Center" AS "Profit Center Code",
+                "Standard Hierarchy Node",
+            FROM meta_cost_centers
+            """
+        ).df()
+
+        self.node_to_compass = self.conn.execute(
+            """
+            SELECT
+                "Group cost center code" AS "Standard Hierarchy Node",
+                "P&L line code" AS "Compass Code"
+            FROM meta_node_to_compass
+            """
+        ).df()
+
+        self.fiscal_periods = self.conn.execute(
+            """
+            SELECT
+                "Fiscal Period",
+                "Fiscal Period Text"
+            FROM meta_fiscal_periods;
+            """
+        ).df()
+
+        self.gl_accounts = self.conn.execute(
+            """
+            SELECT
+                "G/L Account",
+                "G/L Acct Long Text"
+            FROM meta_gl_accounts
+            """
+        ).df()
+
+        self.gl_accounts_to_compass = self.conn.execute(
+            """
+            SELECT
+                "Financial Statement Item" AS "Compass Code",
+                "Account To" AS "G/L Account"
+            FROM meta_gl_to_compass
+            """
+        ).df()
+
+        self.profit_centers = self.conn.execute(
+            """
+            SELECT
+                "Profit Center" AS "Profit Center Code",
+                "Segment" AS "Division Abbreviation",
+                "Segment (2)" AS "Division",
+                "Standard Hierarchy Node",
+                "SAP Signature" AS "Signature Code"
+            FROM meta_profit_centers
+            """
+        ).df()
+
+        self.signatures = self.conn.execute(
+            """
+            SELECT
+                "Signature Code",
+                "Signature Description"
+            FROM meta_signatures
+            """
+        ).df()
+
+        self.wbs_codification = self.conn.execute(
+            """
+            SELECT
+                "Type Char" AS "WBS Type Char",
+                "Type" AS "WBS Type",
+                "Type Local" AS "WBS Typ Local"
+            FROM meta_wbs_codification;
+            """
+        ).df()
+
+        self.wbs_elements = self.conn.execute(
+            """
+            SELECT
+                "WBS Element" AS "WBS Element Code",
+                "WBS Element Name",
+                "Level" AS "WBS Level",
+                "P&L_Destination" AS "WBS G/L Account",
+                "Profit Center" AS "WBS Profit Center Code"
+            FROM meta_wbs_elements
+            """
+        ).df()
+
+        self.wbs_enhanced = self.enhance_wbs_elements(
+            self.wbs_elements, self.wbs_codification
+        )
+        self.profit_centers_to_signatures = self.link_profit_center_to_signatures(
+            self.profit_centers, self.signatures
+        )
+        self.cost_center_to_compass = self.link_cost_center_to_compass(
+            self.cost_centers, self.node_to_compass
+        )
+        self.gl_to_compass = self.link_gl_to_compass(
+            self.gl_accounts, self.gl_accounts_to_compass
+        )
 
     def enhance_wbs_elements(
         self, wbs_elements: DataFrame, wbs_codification: DataFrame
@@ -282,7 +772,6 @@ class FinancePipeline:
         return frame
 
     def run_import(self, data_files: list[Path]) -> None:
-        # 1. Check for new files to process
         self.track_processed_files()
         files_to_process: list[Path] = self.get_new_files(data_files)
 
@@ -296,26 +785,26 @@ class FinancePipeline:
         for data_file in files_to_process:
             fname = data_file.name.lower()
             if "ccdet" in fname:
-                self.master_tables["cost_center_details"].append(data_file)
+                self.raw_tables["raw_cost_center_details"].append(data_file)
             elif "commit_cc" in fname:
-                self.master_tables["commit_cc"].append(data_file)
+                self.raw_tables["raw_commit_cc"].append(data_file)
             elif "commit_wbs" in fname:
-                self.master_tables["commit_wbs"].append(data_file)
+                self.raw_tables["raw_commit_wbs"].append(data_file)
             elif "wbs_budget" in fname:
-                self.master_tables["wbs_budget"].append(data_file)
+                self.raw_tables["raw_wbs_budget"].append(data_file)
             elif "_le_" in fname:
-                self.master_tables["forecast_live_estimate"].append(data_file)
+                self.raw_tables["raw_forecast_live_estimate"].append(data_file)
             elif "_prebud_" in fname:
-                self.master_tables["forecast_pre_budget"].append(data_file)
+                self.raw_tables["raw_forecast_pre_budget"].append(data_file)
             elif "_bud_" in fname:
-                self.master_tables["forecast_budget"].append(data_file)
+                self.raw_tables["raw_forecast_budget"].append(data_file)
             elif "_t0" in fname:
-                self.master_tables["forecast_trend"].append(data_file)
+                self.raw_tables["raw_forecast_trend"].append(data_file)
             else:
-                self.master_tables["actuals"].append(data_file)
+                self.raw_tables["raw_actuals"].append(data_file)
 
         # 3. Process each bucket of files into their respective tables
-        for table_key, file_list in self.master_tables.items():
+        for table_key, file_list in self.raw_tables.items():
             if not file_list:
                 print(f"No new {table_key} files to process. Skipping.")
                 continue
@@ -330,23 +819,23 @@ class FinancePipeline:
                     else:
                         df = pd.read_csv(
                             file_path,
-                            dtype=self.RAW_DATA_TYPES,
+                            dtype=self.RAW_DATA_SCHEMA,
                             encoding="ISO-8859-1",
                             index_col=False,
-                        )
+                        )  # type: ignore
                         df["source_file"] = file_path.name
 
                     # Create PartitionDate column
                     df_cols = df.columns.to_list()
                     if "Period" in df_cols:
                         df["PartitionDate"] = pd.to_datetime(
-                            df[["Fiscal Year", "Period"]]
+                            df[["Fiscal Year", "Period"]]  # type: ignore
                             .rename(columns={"Fiscal Year": "year", "Period": "month"})
                             .assign(day=1)
                         )
                     elif "Fiscal Period" in df_cols:
                         df["PartitionDate"] = pd.to_datetime(
-                            df[["Fiscal Year", "Fiscal Period"]]
+                            df[["Fiscal Year", "Fiscal Period"]]  # type: ignore
                             .rename(
                                 columns={
                                     "Fiscal Year": "year",
@@ -357,7 +846,7 @@ class FinancePipeline:
                         )
                     # TODO: Confirm if "Last Refresh" is required
                     elif "Last Refresh" in df_cols:
-                        df["Fiscal Period"] = df["PERIOD"].str.extract("(\d+)")
+                        df["Fiscal Period"] = df["PERIOD"].str.extract("(\d+)")  # type: ignore
                         df["Fiscal Period"] = pd.to_numeric(
                             df["Fiscal Period"], errors="coerce"
                         )
@@ -404,8 +893,20 @@ class FinancePipeline:
 
     # 3. Process Actuals
     def make_gold_actuals(
-        self, actuals: DataFrame, meta_frames: ActualsMetadata
+        self, range_start: str, range_end: str, meta_frames: ActualsMetadata
     ) -> DataFrame:
+        actuals: DataFrame = self.conn.execute(
+            """
+            SELECT * FROM raw_actuals
+            WHERE
+                "PartitionDate" >= ?
+                AND "PartitionDate" < ?
+            """,
+            [range_start, range_end],
+        ).df()
+        if actuals.empty:
+            return actuals
+
         actuals = actuals.rename(columns=self.SAP_COLUMN_RENAME)
         actuals["Amount in Company Code Currency"] *= -1
         actuals["Scenario"] = "Actual"
@@ -480,11 +981,23 @@ class FinancePipeline:
         )
         gold_actuals_m = gold_actuals_m.drop(columns=["WBS Element Code Temp"])
 
-        return pd.concat([gold_actuals_m, gold_actuals_non_m])
+        return pd.concat([gold_actuals_m, gold_actuals_non_m], ignore_index=True)
 
     def make_gold_cc_details(
-        self, cc_details: DataFrame, meta_frames: CostCenterMetadata
+        self, range_start: str, range_end: str, meta_frames: CostCenterMetadata
     ) -> DataFrame:
+        cc_details: DataFrame = self.conn.execute(
+            """
+            SELECT * FROM raw_cost_center_details
+            WHERE
+                "PartitionDate" >= ?
+                AND "PartitionDate" < ?
+            """,
+            [range_start, range_end],
+        ).df()
+        if cc_details.empty:
+            return cc_details
+
         cc_details = cc_details.rename(columns=self.SAP_COLUMN_RENAME)
         cc_details["Scenario"] = "Cost Center Details"
         cc_details["Amount in Company Code Currency"] *= -1
@@ -549,9 +1062,17 @@ class FinancePipeline:
 
         return self.determine_fiscal_type(cc_details_wbs)
 
-    def make_gold_commit_wbs(
-        self, commit_wbs: DataFrame, meta_frame: CommitWBSMetadata
-    ) -> DataFrame:
+    def make_gold_commit_wbs(self, meta_frame: CommitWBSMetadata) -> DataFrame:
+        commit_wbs: DataFrame = self.conn.execute(
+            """
+            SELECT
+                *,
+                'Committed' AS "Scenario"
+            FROM raw_commit_wbs
+            """
+        ).df()
+        if commit_wbs.empty:
+            return commit_wbs
         commit_wbs = commit_wbs.rename(columns=self.SAP_COLUMN_RENAME)
 
         # Find columns that contain the word "date" and format as datetime
@@ -589,9 +1110,18 @@ class FinancePipeline:
             validate="many_to_one",
         )
 
-    def make_gold_commit_cc(
-        self, commit_cc: DataFrame, meta_frame: CommitCostCenterMetadat
-    ):
+    def make_gold_commit_cc(self, meta_frame: CommitCostCenterMetadat):
+        commit_cc: DataFrame = self.conn.execute(
+            """
+            SELECT
+                *,
+                'Committed' AS "Scenario"
+            FROM raw_commit_cc
+            """
+        ).df()
+        if commit_cc.empty:
+            return commit_cc
+
         commit_cc = commit_cc.rename(columns=self.SAP_COLUMN_RENAME)
 
         for col in commit_cc.columns:
@@ -635,9 +1165,86 @@ class FinancePipeline:
             validate="many_to_one",
         )
 
-    def make_gold_forecast(self, forecast: DataFrame, meta_frames) -> DataFrame:
-        forecast = forecast.rename(columns=self.FORECAST_COLUMN_RENAME)
+    def make_gold_forecast(
+        self, range_start: str, range_end: str, meta_frames
+    ) -> DataFrame:
+        # ---- Load Forecast Types ----
+        live_estimate = self.conn.execute(
+            """
+            SELECT
+                *,
+                'Live Estimate' AS "Scenario",
+                "SPEND TYPE" AS 'Fiscal Type'
+            FROM 
+                raw_forecast_live_estimate
+            WHERE
+                "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
+                AND "PartitionDate" >= ?
+                AND "PartitionDate" < ?
+            """,
+            [range_start, range_end],
+        ).df()
 
+        pre_budget = self.conn.execute(
+            """
+            SELECT
+                *,
+                'Pre-Budget' AS "Scenario",
+                "SPEND TYPE" AS 'Fiscal Type'
+            FROM 
+                raw_forecast_pre_budget
+            WHERE
+                "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
+                AND "PartitionDate" >= ?
+                AND "PartitionDate" < ?
+            """,
+            [range_start, range_end],
+        ).df()
+
+        budget = self.conn.execute(
+            """
+            SELECT
+                *,
+                'Budget' AS "Scenario",
+                "SPEND TYPE" AS 'Fiscal Type'
+            FROM
+                raw_forecast_budget
+            WHERE
+                "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
+                AND "PartitionDate" >= ?
+                AND "PartitionDate" < ?
+            """,
+            [range_start, range_end],
+        ).df()
+
+        trend = self.conn.execute(
+            """
+            SELECT
+            *,
+            CASE
+                WHEN 'T03' in "source_file" THEN 'Trend 3'
+                WHEN 'T05' in "source_file" THEN 'Trend 5'
+                WHEN 'T09' in "source_file" THEN 'Trend 9'
+                ELSE NULL
+            END AS 'Scenario',
+            "SPEND TYPE" AS 'Fiscal Type'
+            FROM
+                raw_forecast_trend
+            WHERE
+                "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
+                AND "PartitionDate" >= ?
+                AND "PartitionDate" < ?
+            """,
+            [range_start, range_end],
+        ).df()
+
+        forecast = pd.concat(
+            [live_estimate, pre_budget, budget, trend], ignore_index=True
+        )
+        if forecast.empty:
+            return forecast
+
+        forecast = forecast.rename(columns=self.FORECAST_COLUMN_RENAME)
         forecast["Amount in Company Code Currency"] *= -1
 
         # PERIODs in forecasted are formatted as "M04_T", "M10_B", etc.
@@ -697,131 +1304,74 @@ class FinancePipeline:
             ]
         )
 
-    def run_transformation(
-        self, output_path: str, range_start: str, range_end: str
+    def migrate_to_db(
+        self,
+        incoming_df: DataFrame,
+        target_table: str,
+        range_start: str,
+        range_end: str,
     ) -> None:
-        """Run transformation on data found in the database.
+        self.conn.register("incoming_df_view", incoming_df)
+        try:
+            self.conn.execute("BEGIN TRANSACTION")
+            self.conn.execute(
+                f"""
+                DELETE FROM {target_table}
+                WHERE
+                    PartitionDate >= ? AND
+                    PartitionDate < ?
+                """,
+                [range_start, range_end],
+            )
+            self.conn.execute(
+                f"""
+                INSERT INTO {target_table} BY NAME
+                    SELECT
+                        *
+                    FROM
+                        incoming_df_view
+                    WHERE
+                        "Fiscal Period" != 0
+                """
+            )
+            self.conn.unregister("incoming_df_view")
+            self.conn.execute("COMMIT")
+        except Exception as e:
+            self.conn.execute("ROLLBACK")
+            print(f"Ingestion failed: {e}")
+
+    def make_golden_view(self) -> DataFrame:
+        self.conn.execute("""
+                          
+            SELECT * FROM stg_actuals
+            UNION ALL BY NAME
+            SELECT * FROM stg_commit
+            UNION ALL BY NAME 
+            SELECT * FROM stg_cost_center_details
+            UNION ALL BY NAME
+            SELECT * FROM stg_forecast""")
+
+    def run_pipeline(
+        self,
+        fiscal_type: str,
+        range_start: str,
+        range_end: str,
+        output_path: str,
+    ) -> None:
+        """Run data transformations and migration to database.
 
         Args:
-            output_path (str): Path to the output directory.
+            fiscal_type (str): Finance category
+            range_start (str): Beginning (inclusive) of date range used to filter data
+            range_end (str): End (exclusive) of date range used to filter data
+            output_path (str): Output directory where Parquet files will be stored.
 
-        Returns:
-            None
+        Raises:
+            ValueError: If fiscal_type is not in ["actual", "commit", "cost_center_details", "forecast"]
         """
+        self.load_metadata()
+        self.create_stage_tables()
         print(f"Transforming data from {range_start}-{range_end}")
-        # 1. Instantiate metadata and enhance where necessary
-        compass_codes: DataFrame = self.conn.execute(
-            """
-            SELECT
-                "Financial Statement Item" AS "Compass Code",
-                "Text" AS "P&L Line Text"
-            FROM meta_fs_items
-            """
-        ).df()
-
-        cost_centers: DataFrame = self.conn.execute(
-            """
-            SELECT
-                "Cost Center" AS "Cost Center Code",
-                "Profit Center" AS "Profit Center Code",
-                "Standard Hierarchy Node",
-            FROM meta_cost_centers
-            """
-        ).df()
-
-        node_to_compass: DataFrame = self.conn.execute(
-            """
-            SELECT
-                "Group cost center code" AS "Standard Hierarchy Node",
-                "P&L line code" AS "Compass Code"
-            FROM meta_node_to_compass
-            """
-        ).df()
-
-        fiscal_periods: DataFrame = self.conn.execute(
-            """
-            SELECT
-                "Fiscal Period",
-                "Fiscal Period Text"
-            FROM meta_fiscal_periods;
-            """
-        ).df()
-
-        gl_accounts: DataFrame = self.conn.execute(
-            """
-            SELECT
-                "G/L Account",
-                "G/L Acct Long Text"
-            FROM meta_gl_accounts
-            """
-        ).df()
-
-        gl_accounts_to_compass: DataFrame = self.conn.execute(
-            """
-            SELECT
-                "Financial Statement Item" AS "Compass Code",
-                "Account To" AS "G/L Account"
-            FROM meta_gl_to_compass
-            """
-        ).df()
-
-        profit_centers: DataFrame = self.conn.execute(
-            """
-            SELECT
-                "Profit Center" AS "Profit Center Code",
-                "Segment" AS "Division Abbreviation",
-                "Segment (2)" AS "Division",
-                "Standard Hierarchy Node",
-                "SAP Signature" AS "Signature Code"
-            FROM meta_profit_centers
-            """
-        ).df()
-
-        signatures: DataFrame = self.conn.execute(
-            """
-            SELECT
-                "Signature Code",
-                "Signature Description"
-            FROM meta_signatures
-            """
-        ).df()
-
-        wbs_codification: DataFrame = self.conn.execute(
-            """
-            SELECT
-                "Type Char" AS "WBS Type Char",
-                "Type" AS "WBS Type",
-                "Type Local" AS "WBS Typ Local"
-            FROM meta_wbs_codification;
-            """
-        ).df()
-
-        wbs_elements: DataFrame = self.conn.execute(
-            """
-            SELECT
-                "WBS Element" AS "WBS Element Code",
-                "WBS Element Name",
-                "Level" AS "WBS Level",
-                "P&L_Destination" AS "WBS G/L Account",
-                "Profit Center" AS "WBS Profit Center Code"
-            FROM meta_wbs_elements
-            """
-        ).df()
-
-        wbs_enhanced: DataFrame = self.enhance_wbs_elements(
-            wbs_elements, wbs_codification
-        )
-        profit_centers_to_signatures: DataFrame = self.link_profit_center_to_signatures(
-            profit_centers, signatures
-        )
-        cost_center_to_compass: DataFrame = self.link_cost_center_to_compass(
-            cost_centers, node_to_compass
-        )
-        gl_to_compass: DataFrame = self.link_gl_to_compass(
-            gl_accounts, gl_accounts_to_compass
-        )
-
-        gold_frames: list[DataFrame] = []
 
         # Business Logic:
         # 1. Records posessing a WBS Element Code should be merged with the WBS Elements metdata
@@ -831,323 +1381,69 @@ class FinancePipeline:
         # 3. If G/L Accounts are not present, Cost Centers can be used to retrieve Compass Codes instead
         # by looking up the Cost Center to Compass mapping table that used the Standard Hierarchy Node to bridge both tables.
 
-        actuals: DataFrame = self.conn.execute(
-            """
-            SELECT * FROM actuals
-            WHERE
-                "PartitionDate" >= ?
-                AND "PartitionDate" < ?
-            """,
-            [range_start, range_end],
-        ).df()
-        if not actuals.empty:
+        if fiscal_type.lower() == "actual":
             actuals_meta_frame: ActualsMetadata = {
-                "compass_codes": compass_codes,
-                "cost_center_to_compass": cost_center_to_compass,
-                "gl_to_compass": gl_to_compass,
-                "profit_centers_to_signatures": profit_centers_to_signatures,
-                "wbs_enhanced": wbs_enhanced,
+                "compass_codes": self.compass_codes,
+                "cost_center_to_compass": self.cost_center_to_compass,
+                "gl_to_compass": self.gl_to_compass,
+                "profit_centers_to_signatures": self.profit_centers_to_signatures,
+                "wbs_enhanced": self.wbs_enhanced,
             }
-            gold_frames.append(self.make_gold_actuals(actuals, actuals_meta_frame))
-
-        # ---- Process Cost Center Details ----
-        cc_details: DataFrame = self.conn.execute(
-            """
-            SELECT * FROM cost_center_details
-            WHERE
-                "PartitionDate" >= ?
-                AND "PartitionDate" < ?
-            """,
-            [range_start, range_end],
-        ).df()
-        if not cc_details.empty:
+            gold_actuals = self.make_gold_actuals(
+                range_start, range_end, actuals_meta_frame
+            ).astype(self.GOLD_ACTUALS_SCHEMA)
+            self.migrate_to_db(gold_actuals, "stg_actuals", range_start, range_end)
+        elif fiscal_type.lower() == "cost_center_details":
+            # ---- Process Cost Center Details ----
             cc_meta_frame: CostCenterMetadata = {
-                "compass_codes": compass_codes,
-                "cost_center_to_compass": cost_center_to_compass,
-                "gl_to_compass": gl_to_compass,
-                "profit_centers_to_signatures": profit_centers_to_signatures,
-                "wbs_enhanced": wbs_enhanced,
+                "compass_codes": self.compass_codes,
+                "cost_center_to_compass": self.cost_center_to_compass,
+                "gl_to_compass": self.gl_to_compass,
+                "profit_centers_to_signatures": self.profit_centers_to_signatures,
+                "wbs_enhanced": self.wbs_enhanced,
             }
-            gold_frames.append(self.make_gold_cc_details(cc_details, cc_meta_frame))
-
-        # ---- Process WBS Committed ----
-        meta_frame_wbs: CommitWBSMetadata = {
-            "wbs_enhanced": wbs_enhanced,
-            "compass_codes": compass_codes,
-            "gl_to_compass": gl_to_compass,
-            "profit_centers_to_signatures": profit_centers_to_signatures,
-        }
-        commit_wbs: DataFrame = self.conn.execute(
-            """
-            SELECT
-                *,
-                'Committed' AS "Scenario"
-            FROM commit_wbs
-            """
-        ).df()
-        gold_frames.append(self.make_gold_commit_wbs(commit_wbs, meta_frame_wbs))
-
-        # ---- Process Cost Center Committed ----
-        meta_frame_cc: CommitCostCenterMetadat = {
-            "gl_to_compass": gl_to_compass,
-            "cost_center_to_compass": cost_center_to_compass,
-            "compass_codes": compass_codes,
-            "profit_centers_to_signatures": profit_centers_to_signatures,
-        }
-        commit_cc: DataFrame = self.conn.execute(
-            """
-            SELECT
-                *,
-                'Committed' AS "Scenario"
-            FROM commit_cc
-            """
-        ).df()
-        gold_frames.append(self.make_gold_commit_cc(commit_cc, meta_frame_cc))
-
-        # ---- Process Forecasted Data ----
-        live_estimate = self.conn.execute(
-            """
-            SELECT
-                *,
-                'Live Estimate' AS "Scenario",
-                "SPEND TYPE" AS 'Fiscal Type'
-            FROM forecast_live_estimate
-            WHERE
-                "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
-                AND "PartitionDate" >= ?
-                AND "PartitionDate" < ?
-            """,
-            [range_start, range_end],
-        ).df()
-
-        pre_budget = self.conn.execute(
-            """
-            SELECT
-                *,
-                'Pre-Budget' AS "Scenario",
-                "SPEND TYPE" AS 'Fiscal Type'
-            FROM forecast_pre_budget
-            WHERE
-                "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
-                AND "PartitionDate" >= ?
-                AND "PartitionDate" < ?
-            """,
-            [range_start, range_end],
-        ).df()
-
-        budget = self.conn.execute(
-            """
-            SELECT
-              *,
-              'Budget' AS "Scenario",
-              "SPEND TYPE" AS 'Fiscal Type'
-            FROM
-              forecast_budget
-            WHERE
-                "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
-                AND "PartitionDate" >= ?
-                AND "PartitionDate" < ?
-            """,
-            [range_start, range_end],
-        ).df()
-
-        trend = self.conn.execute(
-            """
-            SELECT
-              *,
-              CASE
-                WHEN 'T03' in "source_file" THEN 'Trend 3'
-                WHEN 'T05' in "source_file" THEN 'Trend 5'
-                WHEN 'T09' in "source_file" THEN 'Trend 9'
-                ELSE NULL
-              END AS 'Scenario',
-              "SPEND TYPE" AS 'Fiscal Type'
-            FROM
-              forecast_trend
-            WHERE
-                "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
-                AND "PartitionDate" >= ?
-                AND "PartitionDate" < ?
-            """,
-            [range_start, range_end],
-        ).df()
-
-        forecast = pd.concat(
-            [live_estimate, pre_budget, budget, trend], ignore_index=True
-        )
-        if not forecast.empty:
+            gold_cc_details = self.make_gold_cc_details(
+                range_start, range_end, cc_meta_frame
+            ).astype(self.GOLD_COST_CENTER_DETAILS_SCHEMA)
+            self.migrate_to_db(
+                gold_cc_details,
+                "stg_cost_center_details",
+                range_start,
+                range_end,
+            )
+        elif fiscal_type.lower() == "forecast":
+            # ---- Process Forecasted Data ----
             forecast_frames = {
-                "cost_center_to_compass": cost_center_to_compass,
-                "wbs_enhanced": wbs_enhanced,
+                "cost_center_to_compass": self.cost_center_to_compass,
+                "wbs_enhanced": self.wbs_enhanced,
             }
-            gold_frames.append(self.make_gold_forecast(forecast, forecast_frames))
+            gold_forecast = self.make_gold_forecast(
+                range_start, range_end, forecast_frames
+            ).astype(self.GOLD_FORECAST_SCHEMA)
+            self.migrate_to_db(gold_forecast, "stg_forecast", range_start, range_end)
+        elif fiscal_type.lower() == "commit":
+            meta_frame_wbs: CommitWBSMetadata = {
+                "wbs_enhanced": self.wbs_enhanced,
+                "compass_codes": self.compass_codes,
+                "gl_to_compass": self.gl_to_compass,
+                "profit_centers_to_signatures": self.profit_centers_to_signatures,
+            }
 
-        # ---- Store transformed data ----
-        gold_dataset = pd.concat(gold_frames, ignore_index=True)
-        gold_dataset["Year"] = gold_dataset["Fiscal Year"]
-        gold_dataset["Month"] = gold_dataset["Fiscal Period"]
+            meta_frame_cc: CommitCostCenterMetadat = {
+                "gl_to_compass": self.gl_to_compass,
+                "cost_center_to_compass": self.cost_center_to_compass,
+                "compass_codes": self.compass_codes,
+                "profit_centers_to_signatures": self.profit_centers_to_signatures,
+            }
+            gold_commit = pd.concat(
+                [
+                    self.make_gold_commit_wbs(meta_frame_wbs),
+                    self.make_gold_commit_cc(meta_frame_cc),
+                ],
+                ignore_index=True,
+            ).astype(self.GOLD_COMMIT_SCHEMA)
+            self.migrate_to_db(gold_commit, "stg_commit", range_start, range_end)
+        else:
+            raise ValueError(f"Invalid fiscal type: {fiscal_type}")
 
-        master_dtypes = {
-            "PartitionDate": "datetime64[ms]",
-            "Debit Date": "datetime64[ms]",
-            "Reference date": "datetime64[ms]",
-            "Document Date": "datetime64[ms]",
-            "Total Quantity": Float64Dtype(),
-            "Quantity/Plan": Float64Dtype(),
-            "Value TranCurr": Float64Dtype(),
-            "Val/COArea Crcy": Float64Dtype(),
-            "Reference Item": Float64Dtype(),
-            "Val.in rep.cur.": Float64Dtype(),
-            "Native G/L Account": Int64Dtype(),
-            "G/L Account": Int64Dtype(),
-            "WBS Level": Int8Dtype(),
-            "Fiscal Year": Int16Dtype(),
-            "Fiscal Period": Int8Dtype(),
-            "Distribution Channel": Int8Dtype(),
-            "Year": Int16Dtype(),
-            "Month": Int8Dtype(),
-            "Company Code": StringDtype(),
-            "Company Code Name": StringDtype(),
-            "Ledger": StringDtype(),
-            "Ledger Name": StringDtype(),
-            "Profit Center Name": StringDtype(),
-            "G/L Account Name": StringDtype(),
-            "G/L Account Type": StringDtype(),
-            "Journal Entry Type": StringDtype(),
-            "JE Type Name": StringDtype(),
-            "Journal Entry Item Text": StringDtype(),
-            "Amount in Company Code Currency": StringDtype(),
-            "Company Code Currency": StringDtype(),
-            "Purchasing Document": StringDtype(),
-            "Purchasing Doc. Item": StringDtype(),
-            "Partner Cost Center Code": StringDtype(),
-            "Cost Center Code": StringDtype(),
-            "Cost Center Name": StringDtype(),
-            "Project Code": StringDtype(),
-            "Project Name": StringDtype(),
-            "WBS Element Code": StringDtype(),
-            "Product Code": StringDtype(),
-            "Product Name": StringDtype(),
-            "source_file": StringDtype(),
-            "Scenario": StringDtype(),
-            "WBS Element Name": StringDtype(),
-            "WBS Parent Code": StringDtype(),
-            "WBS Parent Name": StringDtype(),
-            "WBS Type Char": StringDtype(),
-            "WBS Type": StringDtype(),
-            "WBS Typ Local": StringDtype(),
-            "G/L Acct Long Text": StringDtype(),
-            "Compass Code": StringDtype(),
-            "P&L Line Text": StringDtype(),
-            "Profit Center Code": StringDtype(),
-            "Division Abbreviation": StringDtype(),
-            "Division": StringDtype(),
-            "Standard Hierarchy Node": StringDtype(),
-            "Signature Code": StringDtype(),
-            "Signature Description": StringDtype(),
-            "Fiscal Type": StringDtype(),
-            "Project definition": StringDtype(),
-            "Reference Document Category": StringDtype(),
-            "Object Type": StringDtype(),
-            "Object": StringDtype(),
-            "CO Object Name": StringDtype(),
-            "Cost element descr.": StringDtype(),
-            "Object Currency": StringDtype(),
-            "Unit of Measure": StringDtype(),
-            "User Name": StringDtype(),
-            "Supplier": StringDtype(),
-            "Ref. document number": StringDtype(),
-            "Reference Doc. Type": StringDtype(),
-            "Name": StringDtype(),
-            "Business Transaction": StringDtype(),
-            "Code 1": StringDtype(),
-            "Code 1 Description": StringDtype(),
-            "Spend Type": StringDtype(),
-            "Code 2": StringDtype(),
-            "Code 2 Description": StringDtype(),
-            "Budget Owner": StringDtype(),
-            "P&L LINE COMPASS DESCRIPTION_FS": StringDtype(),
-            "Brand": StringDtype(),
-            "Sub Brand": StringDtype(),
-            "Axe": StringDtype(),
-            "Sub-Axe": StringDtype(),
-            "REFERENCE": StringDtype(),
-            "CUSTOMER CU CODE": StringDtype(),
-            "CUSTOMER CC LABEL": StringDtype(),
-            "BUD NATURE": StringDtype(),
-            "BU PARTNER": StringDtype(),
-            "PERIOD": StringDtype(),
-            "Last Refresh": StringDtype(),
-            "Detailed Type": StringDtype(),
-            "P&L Line Check": StringDtype(),
-            "Adj NEO Semantic Tag to Active Compass Code": StringDtype(),
-            "Code 1 Concatenated": StringDtype(),
-            "Code 2 Concatenated": StringDtype(),
-            "WBS Profit Center Code": StringDtype(),
-        }
-        master_schema_frame: DataFrame = DataFrame(
-            columns=list(master_dtypes.keys())
-        ).astype(master_dtypes)
-
-        final_dtypes = {
-            col_name: master_dtypes.get(col_name) for col_name in gold_dataset.columns
-        }
-        self.conn.register("empty_dataset", master_schema_frame)
-        self.conn.register("gold_df_view", gold_dataset.astype(final_dtypes))
-        try:
-            self.conn.execute("BEGIN TRANSACTION")
-            self.conn.execute(
-                """
-                CREATE TABLE IF NOT EXISTS gold_dataset AS (
-                    SELECT
-                        * EXCLUDE ("PartitionDate", "Debit Date", "Reference Date", "Document Date"),
-                        CAST("PartitionDate" AS TIMESTAMP) AS "PartitionDate",
-                        CAST("Debit Date" AS TIMESTAMP) AS "Debit Date",
-                        CAST("Reference Date" AS TIMESTAMP) AS "Reference Date",
-                        CAST("Document Date" AS TIMESTAMP) AS "Document Date",
-                    FROM
-                        empty_dataset
-                    WHERE
-                        1=0
-                    )
-                """
-            )
-            self.conn.unregister("empty_dataset")
-            self.conn.execute(
-                """
-                DELETE FROM gold_dataset
-                WHERE
-                    PartitionDate >= ? AND
-                    PartitionDate < ?
-                """,
-                [range_start, range_end],
-            )
-            self.conn.execute(
-                """
-                INSERT INTO gold_dataset BY NAME
-                    SELECT
-                        *
-                    FROM
-                        gold_df_view
-                    WHERE
-                        "Month" != 0
-                """
-            )
-            self.conn.execute(
-                """
-                COPY (
-                    SELECT
-                        *
-                    FROM
-                        gold_dataset
-                    WHERE
-                        "Month" != 0
-                ) TO ? (FORMAT PARQUET, PARTITION_BY ("Year", "Month"), OVERWRITE_OR_IGNORE 1)
-                """,
-                [str(output_path)],
-            )
-            self.conn.unregister("gold_df_view")
-            self.conn.execute("COMMIT")
-        except Exception as e:
-            self.conn.execute("ROLLBACK")
-            print(f"Ingestion failed: {e}")
+        self.update_gold_dataset(output_path)

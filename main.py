@@ -6,6 +6,7 @@ from pathlib import Path
 
 import duckdb
 from dotenv import load_dotenv
+from numpy.random import chisquare
 
 from src.metadata import FinanceMetadata
 from src.pipe import FinancePipeline
@@ -75,6 +76,13 @@ def main(argv=None) -> None:
         "transform", parents=[parent_parser], help="Transform data in warehouse"
     )
     transform_parser.add_argument(
+        "--fiscal-type",
+        type=str,
+        default="actual",
+        choices=["actual", "forecast", "commit", "cost_center_details"],
+        help="Choose whether to update actuals, forecast, or all data. Default is actual",
+    )
+    transform_parser.add_argument(
         "--output-path",
         type=str,
         nargs="?" if output_default else None,
@@ -85,14 +93,14 @@ def main(argv=None) -> None:
         "--range-start",
         type=str,
         help="""
-        The initial date (inclusive) that defines the data range that should be transformed. 
+        The initial date (inclusive) that defines the data range that should be transformed.
         Must be in the form of YYYY/MM/DD""",
     )
     transform_parser.add_argument(
         "--range-end",
         type=str,
         help="""
-        The end date (inclusive) that defines the data range that should be transformed. 
+        The end date (inclusive) that defines the data range that should be transformed.
         Must be in the form of YYYY/MM/DD""",
     )
 
@@ -161,15 +169,22 @@ def main(argv=None) -> None:
         pipeline = FinancePipeline(conn)
         tic = time.perf_counter()
         print("Starting transformations...")
-        pipeline.run_transformation(
-            str(args.output_path), args.range_start, args.range_end
-        )
-        toc = time.perf_counter()
-        print(
-            f"Transformation took {toc - tic:0.2f} seconds. Closing database and exiting program."
-        )
-        conn.close()
-        sys.exit(0)
+        try:
+            pipeline.run_pipeline(
+                args.fiscal_type,
+                args.range_start,
+                args.range_end,
+                str(args.output_path),
+            )
+            toc = time.perf_counter()
+            print(
+                f"Transformation took {toc - tic:0.2f} seconds. Closing database and exiting program."
+            )
+        except Exception as e:
+            print(f"Data pipeline failed due to:\n{e}")
+        finally:
+            conn.close()
+            sys.exit(0)
 
     else:
         print("Invalid command. Exiting program.")
