@@ -834,9 +834,9 @@ class FinancePipeline:
         actuals: DataFrame = self.conn.execute(
             """
             SELECT * FROM actuals
-            WHERE 
+            WHERE
                 "PartitionDate" >= ?
-                AND "PartitionDate" < ?           
+                AND "PartitionDate" < ?
             """,
             [range_start, range_end],
         ).df()
@@ -854,7 +854,7 @@ class FinancePipeline:
         cc_details: DataFrame = self.conn.execute(
             """
             SELECT * FROM cost_center_details
-            WHERE 
+            WHERE
                 "PartitionDate" >= ?
                 AND "PartitionDate" < ?
             """,
@@ -879,7 +879,7 @@ class FinancePipeline:
         }
         commit_wbs: DataFrame = self.conn.execute(
             """
-            SELECT 
+            SELECT
                 *,
                 'Committed' AS "Scenario"
             FROM commit_wbs
@@ -896,7 +896,7 @@ class FinancePipeline:
         }
         commit_cc: DataFrame = self.conn.execute(
             """
-            SELECT 
+            SELECT
                 *,
                 'Committed' AS "Scenario"
             FROM commit_cc
@@ -912,7 +912,7 @@ class FinancePipeline:
                 'Live Estimate' AS "Scenario",
                 "SPEND TYPE" AS 'Fiscal Type'
             FROM forecast_live_estimate
-            WHERE 
+            WHERE
                 "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
                 AND "PartitionDate" >= ?
                 AND "PartitionDate" < ?
@@ -927,7 +927,7 @@ class FinancePipeline:
                 'Pre-Budget' AS "Scenario",
                 "SPEND TYPE" AS 'Fiscal Type'
             FROM forecast_pre_budget
-            WHERE 
+            WHERE
                 "PERIOD" NOT IN ('TOTAL', 'TOTAL_B', 'TOTAL_T')
                 AND "PartitionDate" >= ?
                 AND "PartitionDate" < ?
@@ -986,7 +986,8 @@ class FinancePipeline:
         gold_dataset = pd.concat(gold_frames, ignore_index=True)
         gold_dataset["Year"] = gold_dataset["Fiscal Year"]
         gold_dataset["Month"] = gold_dataset["Fiscal Period"]
-        final_dtypes = {
+
+        master_dtypes = {
             "PartitionDate": "datetime64[ms]",
             "Debit Date": "datetime64[ms]",
             "Reference date": "datetime64[ms]",
@@ -1084,35 +1085,69 @@ class FinancePipeline:
             "Code 2 Concatenated": StringDtype(),
             "WBS Profit Center Code": StringDtype(),
         }
+        master_schema_frame: DataFrame = DataFrame(
+            columns=list(master_dtypes.keys())
+        ).astype(master_dtypes)
 
-        self.conn.register(
-            "gold_df_view", gold_dataset.astype(final_dtypes, copy=False)
-        )
-        self.conn.execute(
-            """
-            COPY (
-                SELECT 
-                    *
-                FROM 
-                    gold_df_view 
-                WHERE 
-                    "Month" != 0
-            ) TO ? (FORMAT PARQUET, PARTITION_BY ("Year", "Month"), OVERWRITE_OR_IGNORE 1)
-            """,
-            [str(output_path)],
-        )
-        self.conn.execute(
-            """
-            CREATE OR REPLACE TABLE gold_dataset AS
-            (
-                SELECT 
-                    * 
-                FROM 
-                    read_parquet(?, union_by_name=true)
-                WHERE
-                    "Month" !=0
+        final_dtypes = {
+            col_name: master_dtypes.get(col_name) for col_name in gold_dataset.columns
+        }
+        self.conn.register("empty_dataset", master_schema_frame)
+        self.conn.register("gold_df_view", gold_dataset.astype(final_dtypes))
+        try:
+            self.conn.execute("BEGIN TRANSACTION")
+            self.conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS gold_dataset AS (
+                    SELECT
+                        * EXCLUDE ("PartitionDate", "Debit Date", "Reference Date", "Document Date"),
+                        CAST("PartitionDate" AS TIMESTAMP) AS "PartitionDate",
+                        CAST("Debit Date" AS TIMESTAMP) AS "Debit Date",
+                        CAST("Reference Date" AS TIMESTAMP) AS "Reference Date",
+                        CAST("Document Date" AS TIMESTAMP) AS "Document Date",
+                    FROM
+                        empty_dataset
+                    WHERE
+                        1=0
+                    )
+                """
             )
-            """,
-            [f"{str(output_path)}/**/*.parquet"],
-        )
-        self.conn.unregister("gold_df_view")
+            self.conn.unregister("empty_dataset")
+            self.conn.execute(
+                """
+                DELETE FROM gold_dataset
+                WHERE
+                    PartitionDate >= ? AND
+                    PartitionDate < ?
+                """,
+                [range_start, range_end],
+            )
+            self.conn.execute(
+                """
+                INSERT INTO gold_dataset BY NAME
+                    SELECT
+                        *
+                    FROM
+                        gold_df_view
+                    WHERE
+                        "Month" != 0
+                """
+            )
+            self.conn.execute(
+                """
+                COPY (
+                    SELECT
+                        *
+                    FROM
+                        gold_dataset
+                    WHERE
+                        "Month" != 0
+                ) TO ? (FORMAT PARQUET, PARTITION_BY ("Year", "Month"), OVERWRITE_OR_IGNORE 1)
+                """,
+                [str(output_path)],
+            )
+            self.conn.unregister("gold_df_view")
+            self.conn.execute("COMMIT")
+        except Exception as e:
+            self.conn.execute("ROLLBACK")
+            print(f"Ingestion failed: {e}")
