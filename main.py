@@ -6,7 +6,6 @@ from pathlib import Path
 
 import duckdb
 from dotenv import load_dotenv
-from numpy.random import chisquare
 
 from src.metadata import FinanceMetadata
 from src.pipe import FinancePipeline
@@ -79,8 +78,8 @@ def main(argv=None) -> None:
         "--fiscal-type",
         type=str,
         default="actual",
-        choices=["actual", "forecast", "commit", "cost_center_details"],
-        help="Choose whether to update actuals, forecast, or all data. Default is actual",
+        choices=["actual", "forecast", "commit", "cost_center_details", "net_sales"],
+        help="The type of fiscal data to process. Default is actual",
     )
     transform_parser.add_argument(
         "--output-path",

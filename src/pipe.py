@@ -1,4 +1,3 @@
-import gc
 from collections import defaultdict
 from pathlib import Path
 from typing import TypedDict
@@ -103,6 +102,7 @@ class FinancePipeline:
             "Val/COArea Crcy": Float64Dtype(),
             "Value TranCurr": Float64Dtype(),
             "Value in Obj. Crcy": Float64Dtype(),
+            "Value": Float64Dtype(),
             "WBS Element": StringDtype(),
             "WBS Element Name": StringDtype(),
             "WBS Element External ID": StringDtype(),
@@ -148,7 +148,7 @@ class FinancePipeline:
         "PRODUCT CODE": "Product Code",
         "SPEND TYPE": "Spend Type",
     }
-    GOLD_FINANCE_SCHEMA = {
+    STAGE_FINANCE_SCHEMA = {
         "PartitionDate": "datetime64[ms]",
         "Debit Date": "datetime64[ms]",
         "Reference date": "datetime64[ms]",
@@ -177,7 +177,7 @@ class FinancePipeline:
         "Journal Entry Type": StringDtype(),
         "JE Type Name": StringDtype(),
         "Journal Entry Item Text": StringDtype(),
-        "Amount in Company Code Currency": StringDtype(),
+        "Amount in Company Code Currency": Float64Dtype(),
         "Company Code Currency": StringDtype(),
         "Purchasing Document": StringDtype(),
         "Purchasing Doc. Item": StringDtype(),
@@ -246,7 +246,7 @@ class FinancePipeline:
         "Code 2 Concatenated": StringDtype(),
         "WBS Profit Center Code": StringDtype(),
     }
-    GOLD_ACTUALS_SCHEMA = {
+    STAGE_ACTUALS_SCHEMA = {
         "Company Code": StringDtype(),
         "Company Code Name": StringDtype(),
         "Fiscal Year": Int16Dtype(),
@@ -261,7 +261,7 @@ class FinancePipeline:
         "Journal Entry Type": StringDtype(),
         "JE Type Name": StringDtype(),
         "Journal Entry Item Text": StringDtype(),
-        "Amount in Company Code Currency": StringDtype(),
+        "Amount in Company Code Currency": Float64Dtype(),
         "Company Code Currency": StringDtype(),
         "Purchasing Document": StringDtype(),
         "Purchasing Doc. Item": StringDtype(),
@@ -295,7 +295,7 @@ class FinancePipeline:
         "Signature Description": StringDtype(),
         "Fiscal Type": StringDtype(),
     }
-    GOLD_COST_CENTER_DETAILS_SCHEMA = {
+    STAGE_COST_CENTER_DETAILS_SCHEMA = {
         "Company Code": StringDtype(),
         "Company Code Name": StringDtype(),
         "Fiscal Year": Int16Dtype(),
@@ -310,7 +310,7 @@ class FinancePipeline:
         "Journal Entry Type": StringDtype(),
         "JE Type Name": StringDtype(),
         "Journal Entry Item Text": StringDtype(),
-        "Amount in Company Code Currency": StringDtype(),
+        "Amount in Company Code Currency": Float64Dtype(),
         "Company Code Currency": StringDtype(),
         "Purchasing Document": StringDtype(),
         "Purchasing Doc. Item": StringDtype(),
@@ -344,7 +344,7 @@ class FinancePipeline:
         "Signature Description": StringDtype(),
         "Fiscal Type": StringDtype(),
     }
-    GOLD_FORECAST_SCHEMA = {
+    STAGE_FORECAST_SCHEMA = {
         "Code 1": StringDtype(),
         "Code 1 Description": StringDtype(),
         "Spend Type": StringDtype(),
@@ -365,7 +365,7 @@ class FinancePipeline:
         "BU PARTNER": StringDtype(),
         "Name": StringDtype(),
         "PERIOD": StringDtype(),
-        "Amount in Company Code Currency": StringDtype(),
+        "Amount in Company Code Currency": Float64Dtype(),
         "Last Refresh": StringDtype(),
         "Detailed Type": StringDtype(),
         "Fiscal Year": Int16Dtype(),
@@ -393,7 +393,7 @@ class FinancePipeline:
         "WBS Typ Local": StringDtype(),
         "Compass Code": StringDtype(),
     }
-    GOLD_COMMIT_SCHEMA = {
+    STAGE_COMMIT_SCHEMA = {
         "Company Code": StringDtype(),
         "Project definition": StringDtype(),
         "Reference Document Category": StringDtype(),
@@ -403,7 +403,7 @@ class FinancePipeline:
         "CO Object Name": StringDtype(),
         "G/L Account": Int64Dtype(),
         "Cost element descr.": StringDtype(),
-        "Amount in Company Code Currency": StringDtype(),
+        "Amount in Company Code Currency": Float64Dtype(),
         "Total Quantity": Float64Dtype(),
         "Quantity/Plan": Float64Dtype(),
         "Object Currency": StringDtype(),
@@ -446,6 +446,31 @@ class FinancePipeline:
         "Cost Center Code": StringDtype(),
         "Val.in rep.cur.": Float64Dtype(),
     }
+    STAGE_NET_SALES_SCHEMA = {
+        "BU_Central": StringDtype(),
+        "PERIOD": StringDtype(),
+        "PRODUCT_BI_CENTRAL": StringDtype(),
+        "Amount in Company Code Currency": Float64Dtype(),
+        "Fiscal Year": Int16Dtype(),
+        "source_file": StringDtype(),
+        "Fiscal Period": Int8Dtype(),
+        "Origin": StringDtype(),
+        "Signature Code": StringDtype(),
+        "Signature Description": StringDtype(),
+        "PartitionDate": "datetime64[ms]",
+    }
+    FILE_TYPE_TO_FISCAL_TYPE: dict[str, str] = {
+        "raw_actuals": "actuals",
+        "raw_commit_cc": "commit",
+        "raw_commit_wbs": "commit",
+        "raw_cost_center_details": "cost_center_details",
+        "raw_wbs_budget": "wbs_budget",
+        "raw_forecast_budget": "forecast",
+        "raw_forecast_live_estimate": "forecast",
+        "raw_forecast_pre_budget": "forecast",
+        "raw_forecast_trend": "forecast",
+        "raw_net_sales": "net_sales",
+    }
 
     def __init__(
         self,
@@ -462,6 +487,7 @@ class FinancePipeline:
             "raw_forecast_live_estimate": [],
             "raw_forecast_pre_budget": [],
             "raw_forecast_trend": [],
+            "raw_net_sales": [],
         }
         self.compass_codes: DataFrame
         self.cost_centers: DataFrame
@@ -494,16 +520,21 @@ class FinancePipeline:
 
         stage_tables = {
             "stg_actuals": DataFrame(
-                columns=list(self.GOLD_ACTUALS_SCHEMA.keys())
-            ).astype(self.GOLD_ACTUALS_SCHEMA),
+                columns=list(self.STAGE_ACTUALS_SCHEMA.keys())
+            ).astype(self.STAGE_ACTUALS_SCHEMA),
             "stg_cost_center_details": DataFrame(
-                columns=self.GOLD_COST_CENTER_DETAILS_SCHEMA.keys()
-            ).astype(self.GOLD_COST_CENTER_DETAILS_SCHEMA),
-            "stg_forecast": DataFrame(columns=self.GOLD_FORECAST_SCHEMA.keys()).astype(
-                self.GOLD_FORECAST_SCHEMA
+                columns=self.STAGE_COST_CENTER_DETAILS_SCHEMA.keys()  # type: ignore
+            ).astype(self.STAGE_COST_CENTER_DETAILS_SCHEMA),
+            "stg_forecast": DataFrame(columns=self.STAGE_FORECAST_SCHEMA.keys()).astype(  # type: ignore
+                self.STAGE_FORECAST_SCHEMA
             ),
-            "stg_commit": DataFrame(columns=self.GOLD_COMMIT_SCHEMA.keys()).astype(
-                self.GOLD_COMMIT_SCHEMA
+            "stg_commit": DataFrame(columns=self.STAGE_COMMIT_SCHEMA.keys()).astype(  # type: ignore
+                self.STAGE_COMMIT_SCHEMA
+            ),
+            "stg_net_sales": DataFrame(
+                columns=self.STAGE_NET_SALES_SCHEMA.keys()
+            ).astype(  # type: ignores
+                self.STAGE_NET_SALES_SCHEMA
             ),
         }
 
@@ -548,6 +579,12 @@ class FinancePipeline:
                         *
                     FROM
                         stg_forecast
+                    UNION ALL
+                    BY NAME
+                    SELECT 
+                        *
+                    FROM 
+                        stg_net_sales
                     )
                 );
             """
@@ -564,6 +601,76 @@ class FinancePipeline:
         ).fetchall()
         processed_set = {row[0] for row in processed}
         return [f for f in data_files if f.name not in processed_set]
+
+    def create_partition_date(self, df: DataFrame, type: str) -> DataFrame:
+        """Create a PartitionDate column for the type of data passed.
+
+        Args:
+            df (DataFrame): Raw dataframe.
+            type (str, optional):
+                Choose between "actuals", "commit", "forecast" or "net sales"
+                to run rule-based creation of PartitionDate
+                Defaults to "actual".
+
+        Returns:
+            DataFrame: DataFrame with PartitionDate column as "YYYY/MM/DD"
+        """
+        if type == "actual":
+            df["PartitionDate"] = pd.to_datetime(
+                df[["Fiscal Year", "Fiscal Period"]]
+                .rename(
+                    columns={
+                        "Fiscal Year": "year",
+                        "Fiscal Period": "month",
+                    }
+                )
+                .assign(day=1)
+            )
+        elif type == "commit":
+            df["PartitionDate"] = pd.to_datetime(
+                df[["Fiscal Year", "Period"]]
+                .rename(columns={"Fiscal Year": "year", "Period": "month"})
+                .assign(day=1)
+            )
+        elif type == "forecast":
+            df["Fiscal Period"] = df["PERIOD"].str.extract("(\d+)")
+            df["Fiscal Period"] = pd.to_numeric(df["Fiscal Period"], errors="coerce")
+            df["Fiscal Period"] = df["Fiscal Period"].fillna(0).astype(Int8Dtype())
+
+            df.loc[df["Fiscal Period"] != 0, "PartitionDate"] = pd.to_datetime(
+                df.loc[df["Fiscal Period"] != 0, ["YEAR", "Fiscal Period"]]
+                .rename(columns={"YEAR": "year", "Fiscal Period": "month"})
+                .assign(day=1)
+            )
+        elif type == "net_sales":
+            month_to_num: dict[str, int] = {
+                "January": 1,
+                "February": 2,
+                "March": 3,
+                "April": 4,
+                "May": 5,
+                "June": 6,
+                "July": 7,
+                "August": 8,
+                "September": 9,
+                "October": 10,
+                "November": 11,
+                "December": 12,
+            }
+            df["Fiscal Period"] = df["PERIOD"].map(month_to_num)
+            df["Fiscal Period"] = df["Fiscal Period"].fillna(0).astype(Int8Dtype())
+            df.loc[df["Fiscal Period"] != 0, "PartitionDate"] = pd.to_datetime(
+                df.loc[df["Fiscal Period"] != 0, ["YEAR", "Fiscal Period"]]
+                .rename(columns={"YEAR": "year", "Fiscal Period": "month"})
+                .assign(day=1)
+            )
+        else:
+            raise ValueError(
+                """Choose a fiscal type of actuals, commit, forecast or net sales 
+                to create a PartitionDate column."""
+            )
+
+        return df
 
     def load_metadata(self) -> None:
         self.compass_codes = self.conn.execute(
@@ -800,6 +907,8 @@ class FinancePipeline:
                 self.raw_tables["raw_forecast_budget"].append(data_file)
             elif "_t0" in fname:
                 self.raw_tables["raw_forecast_trend"].append(data_file)
+            elif "net sales" in fname:
+                self.raw_tables["raw_net_sales"].append(data_file)
             else:
                 self.raw_tables["raw_actuals"].append(data_file)
 
@@ -825,50 +934,53 @@ class FinancePipeline:
                         )  # type: ignore
                         df["source_file"] = file_path.name
 
-                    # Create PartitionDate column
                     df_cols = df.columns.to_list()
-                    if "Period" in df_cols:
-                        df["PartitionDate"] = pd.to_datetime(
-                            df[["Fiscal Year", "Period"]]  # type: ignore
-                            .rename(columns={"Fiscal Year": "year", "Period": "month"})
-                            .assign(day=1)
-                        )
-                    elif "Fiscal Period" in df_cols:
-                        df["PartitionDate"] = pd.to_datetime(
-                            df[["Fiscal Year", "Fiscal Period"]]  # type: ignore
-                            .rename(
-                                columns={
-                                    "Fiscal Year": "year",
-                                    "Fiscal Period": "month",
-                                }
-                            )
-                            .assign(day=1)
-                        )
-                    # TODO: Confirm if "Last Refresh" is required
-                    elif "Last Refresh" in df_cols:
-                        df["Fiscal Period"] = df["PERIOD"].str.extract("(\d+)")  # type: ignore
-                        df["Fiscal Period"] = pd.to_numeric(
-                            df["Fiscal Period"], errors="coerce"
-                        )
-                        df["Fiscal Period"] = (
-                            df["Fiscal Period"].fillna(0).astype(Int64Dtype())
-                        )
-
-                        df.loc[df["Fiscal Period"] != 0, "PartitionDate"] = (
-                            pd.to_datetime(
-                                df.loc[
-                                    df["Fiscal Period"] != 0, ["YEAR", "Fiscal Period"]
-                                ]
-                                .rename(
-                                    columns={"YEAR": "year", "Fiscal Period": "month"}
-                                )
-                                .assign(day=1)
-                            )
-                        )
-
                     date_cols = [col for col in df_cols if "date" in col.lower()]
                     for date_col in date_cols:
                         df[date_col] = pd.to_datetime(df[date_col], format="%m/%d/%Y")
+
+                    df = self.create_partition_date(
+                        df, self.FILE_TYPE_TO_FISCAL_TYPE[table_key]
+                    )
+
+                    # if "Period" in df_cols:
+                    #     df["PartitionDate"] = pd.to_datetime(
+                    #         df[["Fiscal Year", "Period"]]
+                    #         .rename(columns={"Fiscal Year": "year", "Period": "month"})
+                    #         .assign(day=1)
+                    #     )
+                    # elif "Fiscal Period" in df_cols:
+                    #     df["PartitionDate"] = pd.to_datetime(
+                    #         df[["Fiscal Year", "Fiscal Period"]]
+                    #         .rename(
+                    #             columns={
+                    #                 "Fiscal Year": "year",
+                    #                 "Fiscal Period": "month",
+                    #             }
+                    #         )
+                    #         .assign(day=1)
+                    #     )
+                    # # TODO: Confirm if "Last Refresh" is required
+                    # elif "Last Refresh" in df_cols:
+                    #     df["Fiscal Period"] = df["PERIOD"].str.extract("(\d+)")
+                    #     df["Fiscal Period"] = pd.to_numeric(
+                    #         df["Fiscal Period"], errors="coerce"
+                    #     )
+                    #     df["Fiscal Period"] = (
+                    #         df["Fiscal Period"].fillna(0).astype(Int64Dtype())
+                    #     )
+
+                    #     df.loc[df["Fiscal Period"] != 0, "PartitionDate"] = (
+                    #         pd.to_datetime(
+                    #             df.loc[
+                    #                 df["Fiscal Period"] != 0, ["YEAR", "Fiscal Period"]
+                    #             ]
+                    #             .rename(
+                    #                 columns={"YEAR": "year", "Fiscal Period": "month"}
+                    #             )
+                    #             .assign(day=1)
+                    #         )
+                    #     )
 
                     self.conn.register("df_typed", df)
                     self.conn.execute("BEGIN TRANSACTION")
@@ -915,7 +1027,6 @@ class FinancePipeline:
         )
 
         del actuals
-        gc.collect()
 
         # Get Compass Code
         actuals_wbs = actuals_wbs.merge(
@@ -971,8 +1082,7 @@ class FinancePipeline:
         # Fiscal Type for "non-M" follows normal logic
         gold_actuals_non_m: DataFrame = self.determine_fiscal_type(actuals_non_m)
 
-        # Fiscal Type for "M" WBS Element Codes should disregard the presence
-        # of WBS Element Codes
+        # Fiscal Type for "M" WBS Element Codes should not use WBS Element Codes
         actuals_m["WBS Element Code Temp"] = actuals_m["WBS Element Code"]
         actuals_m["WBS Element Code"] = pd.NA
         gold_actuals_m = self.determine_fiscal_type(actuals_m)
@@ -1006,7 +1116,6 @@ class FinancePipeline:
         )
 
         del cc_details
-        gc.collect()
 
         # Get Compass Code using G/L Account
         cc_details_wbs = cc_details_wbs.merge(
@@ -1267,7 +1376,6 @@ class FinancePipeline:
         )
 
         del forecast
-        gc.collect()
 
         gold_forecast = gold_forecast.merge(
             meta_frames["wbs_enhanced"],
@@ -1303,6 +1411,45 @@ class FinancePipeline:
                 "WBS G/L Account",
             ]
         )
+
+    def make_gold_net_sales(
+        self, range_start: str, range_end: str, meta_frames
+    ) -> DataFrame:
+        net_sales = self.conn.execute(
+            """
+            SELECT
+                *,
+                'Net Sales' AS "Origin",
+            FROM 
+                raw_net_sales
+            WHERE
+                "PERIOD" != 'Annual trend'
+                AND "PartitionDate" >= ?
+                AND "PartitionDate" < ?
+            """,
+            [range_start, range_end],
+        ).df()
+
+        net_sales["Signature Description"] = (
+            net_sales["PRODUCT_BI_CENTRAL"]
+            .str.extract(r"\-\s(.*)\s\++", expand=False)
+            .str.strip()
+            .str.upper()
+            .astype(StringDtype())
+        ).astype(StringDtype())
+
+        net_sales = net_sales.merge(
+            meta_frames["signature_descriptions"],
+            on="Signature Description",
+            how="left",
+        )
+        net_sales = net_sales.rename(
+            columns={
+                "IR1IND15000T - CONSO NET SALES Magnitude phasing": "Amount in Company Code Currency",
+                "YEAR": "Fiscal Year",
+            }
+        )
+        return net_sales
 
     def migrate_to_db(
         self,
@@ -1340,7 +1487,7 @@ class FinancePipeline:
             self.conn.execute("ROLLBACK")
             print(f"Ingestion failed: {e}")
 
-    def make_golden_view(self) -> DataFrame:
+    def make_golden_view(self) -> None:
         self.conn.execute("""
                           
             SELECT * FROM stg_actuals
@@ -1391,7 +1538,7 @@ class FinancePipeline:
             }
             gold_actuals = self.make_gold_actuals(
                 range_start, range_end, actuals_meta_frame
-            ).astype(self.GOLD_ACTUALS_SCHEMA)
+            ).astype(self.STAGE_ACTUALS_SCHEMA)
             self.migrate_to_db(gold_actuals, "stg_actuals", range_start, range_end)
         elif fiscal_type.lower() == "cost_center_details":
             # ---- Process Cost Center Details ----
@@ -1404,7 +1551,7 @@ class FinancePipeline:
             }
             gold_cc_details = self.make_gold_cc_details(
                 range_start, range_end, cc_meta_frame
-            ).astype(self.GOLD_COST_CENTER_DETAILS_SCHEMA)
+            ).astype(self.STAGE_COST_CENTER_DETAILS_SCHEMA)
             self.migrate_to_db(
                 gold_cc_details,
                 "stg_cost_center_details",
@@ -1413,23 +1560,23 @@ class FinancePipeline:
             )
         elif fiscal_type.lower() == "forecast":
             # ---- Process Forecasted Data ----
-            forecast_frames = {
+            meta_forecast = {
                 "cost_center_to_compass": self.cost_center_to_compass,
                 "wbs_enhanced": self.wbs_enhanced,
             }
             gold_forecast = self.make_gold_forecast(
-                range_start, range_end, forecast_frames
-            ).astype(self.GOLD_FORECAST_SCHEMA)
+                range_start, range_end, meta_forecast
+            ).astype(self.STAGE_FORECAST_SCHEMA)
             self.migrate_to_db(gold_forecast, "stg_forecast", range_start, range_end)
         elif fiscal_type.lower() == "commit":
-            meta_frame_wbs: CommitWBSMetadata = {
+            meta_frames_wbs: CommitWBSMetadata = {
                 "wbs_enhanced": self.wbs_enhanced,
                 "compass_codes": self.compass_codes,
                 "gl_to_compass": self.gl_to_compass,
                 "profit_centers_to_signatures": self.profit_centers_to_signatures,
             }
 
-            meta_frame_cc: CommitCostCenterMetadat = {
+            meta_frames_cc: CommitCostCenterMetadat = {
                 "gl_to_compass": self.gl_to_compass,
                 "cost_center_to_compass": self.cost_center_to_compass,
                 "compass_codes": self.compass_codes,
@@ -1437,12 +1584,18 @@ class FinancePipeline:
             }
             gold_commit = pd.concat(
                 [
-                    self.make_gold_commit_wbs(meta_frame_wbs),
-                    self.make_gold_commit_cc(meta_frame_cc),
+                    self.make_gold_commit_wbs(meta_frames_wbs),
+                    self.make_gold_commit_cc(meta_frames_cc),
                 ],
                 ignore_index=True,
-            ).astype(self.GOLD_COMMIT_SCHEMA)
+            ).astype(self.STAGE_COMMIT_SCHEMA)
             self.migrate_to_db(gold_commit, "stg_commit", range_start, range_end)
+        elif fiscal_type.lower() == "net_sales":
+            meta_frame_net_sales = {"signature_descriptions": self.signatures}
+            gold_net_sales: DataFrame = self.make_gold_net_sales(
+                range_start, range_end, meta_frame_net_sales
+            )
+            self.migrate_to_db(gold_net_sales, "stg_net_sales", range_start, range_end)
         else:
             raise ValueError(f"Invalid fiscal type: {fiscal_type}")
 
