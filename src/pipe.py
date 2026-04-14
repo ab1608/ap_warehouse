@@ -518,7 +518,7 @@ class FinancePipeline:
     def create_stage_tables(self) -> None:
         """Creates empty stage tables."""
 
-        stage_tables = {
+        stage_tables: dict[str, DataFrame] = {
             "stg_actuals": DataFrame(
                 columns=list(self.STAGE_ACTUALS_SCHEMA.keys())
             ).astype(self.STAGE_ACTUALS_SCHEMA),
@@ -596,10 +596,10 @@ class FinancePipeline:
 
     def get_new_files(self, data_files: list[Path]) -> list[Path]:
         """Filters out files that are already in the database log."""
-        processed = self.conn.execute(
+        processed: list[tuple[str]] = self.conn.execute(
             f"SELECT filename FROM {self.PROCESSED_LOG_TABLE}"
         ).fetchall()
-        processed_set = {row[0] for row in processed}
+        processed_set: set[str] = {row[0] for row in processed}
         return [f for f in data_files if f.name not in processed_set]
 
     def create_partition_date(self, df: DataFrame, type: str) -> DataFrame:
